@@ -1,5 +1,5 @@
 {
-  "name": "dsh-workbench",
+  "name": "dsh-legal-workbench",
   "version": "1.0.0",
   "type": "module",
   "description": "Right-sidebar workbench for DeepSeek Harness: read/write your Obsidian notes, SOP lookup, glossary, recordings with live transcription and annotations, global search, optional usage badges.",
@@ -39,20 +39,21 @@
     "dsh",
     "dsh-plugin",
     "deepseek-harness",
+    "legal",
     "obsidian",
-    "notes",
     "transcription",
-    "workbench"
+    "workbench",
+    "lawfirm"
   ],
   "engines": {
     "dsh": ">=0.2.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/gaog88666-boop/dsh-workbench.git"
+    "url": "https://github.com/gaog88666-boop/dsh-legal-workbench.git"
   },
-  "homepage": "https://github.com/gaog88666-boop/dsh-workbench#readme",
+  "homepage": "https://github.com/gaog88666-boop/dsh-legal-workbench#readme",
   "bugs": {
-    "url": "https://github.com/gaog88666-boop/dsh-workbench/issues"
+    "url": "https://github.com/gaog88666-boop/dsh-legal-workbench/issues"
   }
 }

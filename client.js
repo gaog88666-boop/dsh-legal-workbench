@@ -13,7 +13,7 @@
  * 时先弹确认条（追加 / 覆盖 / 取消），读不出草稿时也先确认，绝不盲写。
  */
 window.__ModuleLoader__.load({
-  id: '@local/dsh-workbench',
+  id: 'dsh-legal-workbench',
   factory(require) {
     const React = require('react')
     const h = React.createElement

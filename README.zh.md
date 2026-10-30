@@ -1,9 +1,9 @@
-# 工作台（dsh-workbench）
+# 法律工作台（dsh-legal-workbench）
 
 ## 安装
 
 ```sh
-dsh plugin --profile desktop add dsh-workbench
+dsh plugin --profile desktop add dsh-legal-workbench
 ```
 
 装完重启 DSH。

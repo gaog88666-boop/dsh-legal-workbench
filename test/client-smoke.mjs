@@ -63,7 +63,7 @@ vm.createContext(sandbox)
 vm.runInContext(source, sandbox)
 
 check('__ModuleLoader__.load 被调用', loaded !== null)
-check('模块 id 正确', loaded.id === '@local/dsh-workbench', loaded.id)
+check('模块 id 正确', loaded.id === 'dsh-legal-workbench', loaded.id)
 
 const plugin = loaded.factory((name) => {
   if (name === 'react') return React

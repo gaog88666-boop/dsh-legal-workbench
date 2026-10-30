@@ -2,7 +2,7 @@
 # 本行插在 profile 的 bundle 层；用户可用自己的 patch 层按 id 覆盖 config（覆盖是整段替换）。
 - insert:
     - id: dsh-workbench
-      name: 'dsh-workbench'
+      name: 'dsh-legal-workbench'
       config:
         # Obsidian vault 根目录与 SOP 子目录：工作台列/读/写这里的 md 笔记。
         vaultRoot: ""          # 首次打开面板时会引导你填写

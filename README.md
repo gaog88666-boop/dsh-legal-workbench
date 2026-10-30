@@ -1,4 +1,4 @@
-# dsh-workbench
+# dsh-legal-workbench
 
 A right-sidebar workbench for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
 It turns your Obsidian notes into a working surface inside the chat window: look up SOPs,
@@ -11,7 +11,7 @@ All files stay on your computer. No account, no telemetry. See [PRIVACY.md](./PR
 ## Install
 
 ```sh
-dsh plugin --profile desktop add dsh-workbench
+dsh plugin --profile desktop add dsh-legal-workbench
 ```
 
 Then restart DSH.
