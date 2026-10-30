@@ -1,0 +1,1088 @@
+/**
+ * dsh-workbench · Host 半边
+ *
+ * 把工作台要的数据变成同源 HTTP JSON（`/api/dsh-workbench/*`）；浏览器端只渲染与交互。
+ *
+ * 唯一事实源是 Obsidian vault 里的 md 笔记：
+ *   · SOP 卡直接列/读/写 `02 Work/01 工作SOP` 下的笔记，Obsidian 里改完保存，工作台下一次取数就是新内容；
+ *   · 术语表落在 `02 Work/02 工作台/术语表.md`，两边改的是同一个文件；
+ *   · cards.json / prompts.json 留在本机工作区（不是笔记，不该进 vault）。
+ *
+ * 路由族（全部 loopback-only，失败形状统一 {ok:false, code, message}）：
+ *   GET  /overview            五张卡片的聚合状态（单卡异常写进自己的 error，不影响别的卡）
+ *   GET  /cards               卡片清单（读 cards.json，坏则内置五卡 + warning）
+ *   GET  /prompts             prompt 模板
+ *   GET  /sop[?q=|?note=]     笔记列表 / 全文搜索 / 单篇正文（含 sha1，供写回比对）
+ *   POST /sop/refresh         清发现缓存重新列
+ *   PUT  /sop/note            写回单篇（带 expectedSha1 冲突检查）
+ *   POST /sop/note            新建笔记（同名拒绝）
+ *   GET  /glossary?q=         术语条目
+ *   POST /glossary            新增
+ *   PUT  /glossary/:id        修改
+ *   DELETE /glossary/:id      删除
+ *   GET  /pkulaw              余额（60 秒缓存）
+ *   POST /pkulaw/refresh      强制刷新余额
+ *   GET  /email               邮件规则库统计
+ *   GET  /email/rules         规则库全文（只读展示）
+ */
+import { execFile } from 'node:child_process'
+import { createReadStream } from 'node:fs'
+import { appendFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { homedir } from 'node:os'
+
+import { readCards } from './lib/cards.js'
+import { readPrompts } from './lib/prompts.js'
+import {
+  addGlossaryEntry as addGlossary,
+  deleteGlossaryEntry as deleteGlossary,
+  readGlossary,
+  updateGlossaryEntry as updateGlossary,
+} from './lib/glossary.js'
+import { createVaultStore } from './lib/vault.js'
+import { createRecordingStore } from './lib/recordings.js'
+import { createAsrBridge } from './lib/volc-asr.js'
+import { transcribeWithIflyrec } from './lib/iflyrec.js'
+import { createUsageReader } from './lib/usage.js'
+import { createPkulawReader } from './lib/pkulaw.js'
+import { readEmailStats } from './lib/email.js'
+import { parseRules, renderRules, applyItems, refreshCounts } from './lib/email-rules.js'
+
+/** 硬依赖：没有 web 服务器就没有路由可注册（非 Web 组合下本插件保持未激活，符合预期）。 */
+export const inject = ['webServer']
+
+const API_PREFIX = '/api/dsh-workbench'
+const USER_CONFIG_FILE = join(homedir(), '.dsh-workbench', 'config.json')
+
+/** 同步读用户配置：apply 阶段就要定下路径，不能等异步。 */
+function loadUserConfigSync() {
+  try {
+    const parsed = JSON.parse(readFileSync(USER_CONFIG_FILE, 'utf8'))
+    return parsed !== null && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+/** 读用户配置（首次引导写入的那份）；读不到就当没配。 */
+async function readUserConfig() {
+  try {
+    const text = await readFile(USER_CONFIG_FILE, 'utf8')
+    const parsed = JSON.parse(text)
+    return parsed !== null && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+const MAX_BODY_BYTES = 1024 * 1024
+
+const DEFAULT_CONFIG = {
+  // 全部留空或取中性值：安装后由首次引导写入 ~/.dsh-workbench/config.json
+  vaultRoot: '',
+  sopDir: 'SOP',
+  workbenchDir: 'Workbench',
+  dataDir: '',
+  emailSkillDir: '',
+  reimbursementTemplate: '',
+  pkulawAccountUrl: 'https://apim-gateway.pkulaw.com/pkulaw-account/mcp',
+  pkulawToken: '',
+  pkulawPatchFile: '',
+  cardsFile: '',
+  promptsFile: '',
+  glossaryFile: '',
+  recordingsDir: 'Recordings',
+  asrConfigFile: '',
+  openCommand: '/usr/bin/open',
+}
+
+function resolveConfig(config, configFile = null) {
+  const merged = { ...DEFAULT_CONFIG }
+  if (config !== null && typeof config === 'object') {
+    for (const key of Object.keys(DEFAULT_CONFIG)) {
+      if (typeof config[key] === 'string') merged[key] = config[key]
+    }
+  }
+  for (const key of Object.keys(merged)) {
+    if (typeof merged[key] === 'string') merged[key] = merged[key].trim()
+  }
+  // 用户配置文件的优先级介于「默认值」与「profile 配置」之间
+  if (merged.vaultRoot === '' && configFile !== null) merged.vaultRoot = configFile.vaultRoot ?? ''
+  if (merged.dataDir === '' && configFile !== null) merged.dataDir = configFile.dataDir ?? ''
+  if (merged.emailSkillDir === '' && configFile !== null) merged.emailSkillDir = configFile.emailSkillDir ?? ''
+  if (merged.dataDir === '') merged.dataDir = join(homedir(), '.dsh-workbench')
+  if (merged.cardsFile === '') merged.cardsFile = join(merged.dataDir, 'cards.json')
+  if (merged.promptsFile === '') merged.promptsFile = join(merged.dataDir, 'prompts.json')
+  if (merged.glossaryFile === '') merged.glossaryFile = join(merged.vaultRoot, merged.workbenchDir, '术语表.md')
+  if (merged.asrConfigFile === '') merged.asrConfigFile = join(merged.dataDir, 'asr.json')
+  return merged
+}
+
+/** Loopback 围栏：只服务本机浏览器（判据与 DSH 内置 Web 路由一致）。 */
+function isLoopbackRequest(req) {
+  const address = req.socket === undefined ? undefined : req.socket.remoteAddress
+  if (address !== '127.0.0.1' && address !== '::1' && address !== '::ffff:127.0.0.1') return false
+  const host = req.headers.host
+  if (typeof host !== 'string') return false
+  let hostUrl
+  try {
+    hostUrl = new URL('http://' + host)
+  } catch {
+    return false
+  }
+  const name = hostUrl.hostname
+  if (name !== '127.0.0.1' && name !== 'localhost' && name !== '[::1]') return false
+  if (req.headers['sec-fetch-site'] === 'cross-site') return false
+  const origin = req.headers.origin
+  if (origin === undefined) return true
+  try {
+    return new URL(origin).host === hostUrl.host
+  } catch {
+    return false
+  }
+}
+
+function writeJson(res, status, body) {
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    'referrer-policy': 'no-referrer',
+  })
+  res.end(JSON.stringify(body))
+}
+
+function writeError(res, status, code, message) {
+  writeJson(res, status, { ok: false, code, message })
+}
+
+function describe(error) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+async function readJsonBody(req) {
+  const chunks = []
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > MAX_BODY_BYTES) throw Object.assign(new Error('请求体过大'), { code: 'too_large' })
+    chunks.push(chunk)
+  }
+  if (size === 0) return {}
+  let parsed
+  try {
+    parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  } catch {
+    throw Object.assign(new Error('请求体不是合法 JSON'), { code: 'bad_json' })
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw Object.assign(new Error('请求体必须是 JSON 对象'), { code: 'bad_json' })
+  }
+  return parsed
+}
+
+/**
+ * 术语表 / 句式库共用的 CRUD 路由。
+ * api = { read, add, update, remove, keys }，形状与 lib/table.js 导出的函数一致。
+ */
+async function handleEntryTable({ req, res, url, method, route, base, file, api }) {
+  if (route === base) {
+    if (method === 'GET') {
+      const query = (url.searchParams.get('q') ?? '').trim().toLowerCase()
+      const current = await api.read(file)
+      const entries = query === ''
+        ? current.entries
+        : current.entries.filter((entry) => api.keys.some((key) => String(entry[key] ?? '').toLowerCase().includes(query)))
+      return writeJson(res, 200, {
+        ok: true,
+        entries,
+        total: current.entries.length,
+        exists: current.exists,
+        warning: current.warning,
+        file,
+      })
+    }
+    if (method === 'POST') {
+      const body = await readJsonBody(req)
+      const result = await api.add(file, body)
+      if (result.ok !== true) return writeError(res, 400, result.code ?? 'invalid_entry', result.error)
+      return writeJson(res, 200, { ok: true, entry: result.entry, total: result.entries.length })
+    }
+    return writeError(res, 405, 'method_not_allowed', 'GET or POST')
+  }
+
+  const match = new RegExp('^' + base + '/([A-Za-z0-9]+)$').exec(route)
+  if (match === null) return writeError(res, 404, 'not_found', route)
+  const id = match[1]
+  if (method === 'PUT') {
+    const body = await readJsonBody(req)
+    const result = await api.update(file, id, body)
+    if (result.ok !== true) {
+      const status = result.code === 'not_found' ? 404 : 400
+      return writeError(res, status, result.code ?? 'invalid_entry', result.error)
+    }
+    return writeJson(res, 200, { ok: true, entry: result.entry, total: result.entries.length })
+  }
+  if (method === 'DELETE') {
+    const result = await api.remove(file, id)
+    if (result.ok !== true) {
+      const status = result.code === 'not_found' ? 404 : 400
+      return writeError(res, status, result.code ?? 'delete_failed', result.error)
+    }
+    return writeJson(res, 200, { ok: true, total: result.entries.length })
+  }
+  return writeError(res, 405, 'method_not_allowed', 'PUT or DELETE')
+}
+
+/** 读原始字节体（音频分片用），超过上限直接拒绝。 */
+async function readRawBody(req, maxBytes) {
+  const chunks = []
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > maxBytes) throw Object.assign(new Error('音频分片过大'), { code: 'too_large' })
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks)
+}
+
+/**
+ * 按 Range 输出音频。一定要支持 Range：否则拖进度条会从头下载整段，
+ * 一小时的录音就是 115MB。
+ */
+async function serveAudio(req, res, filePath) {
+  let info
+  try {
+    info = await stat(filePath)
+  } catch {
+    writeError(res, 404, 'not_found', '录音不存在')
+    return
+  }
+  const total = info.size
+  const range = req.headers.range
+  const base = {
+    'content-type': 'audio/wav',
+    'accept-ranges': 'bytes',
+    'cache-control': 'no-store',
+  }
+  if (typeof range === 'string') {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim())
+    if (match !== null) {
+      let start = match[1] === '' ? null : Number(match[1])
+      let end = match[2] === '' ? null : Number(match[2])
+      if (start === null && end !== null) {
+        start = Math.max(0, total - end)
+        end = total - 1
+      }
+      if (start !== null && end === null) end = total - 1
+      if (start !== null && end !== null && start <= end && start < total) {
+        end = Math.min(end, total - 1)
+        res.writeHead(206, {
+          ...base,
+          'content-range': `bytes ${start}-${end}/${total}`,
+          'content-length': String(end - start + 1),
+        })
+        createReadStream(filePath, { start, end }).pipe(res)
+        return
+      }
+      res.writeHead(416, { ...base, 'content-range': `bytes */${total}` })
+      res.end()
+      return
+    }
+  }
+  res.writeHead(200, { ...base, 'content-length': String(total) })
+  createReadStream(filePath).pipe(res)
+}
+
+/** 路径存在性探测：缺文件是"卡片自己报错"的事，不抛。 */
+async function probePath(path) {
+  if (typeof path !== 'string' || path === '') return { path: path ?? '', status: 'unset' }
+  try {
+    const info = await stat(path)
+    return {
+      path,
+      status: 'ok',
+      kind: info.isDirectory() ? 'directory' : 'file',
+      size: info.isFile() ? info.size : undefined,
+      mtimeMs: Math.round(info.mtimeMs),
+    }
+  } catch (error) {
+    const code = error !== null && typeof error === 'object' ? error.code : undefined
+    if (code === 'ENOENT') return { path, status: 'missing' }
+    if (code === 'EPERM' || code === 'EACCES') return { path, status: 'denied' }
+    return { path, status: 'error', detail: describe(error) }
+  }
+}
+
+export function apply(ctx, config) {
+  let settings = resolveConfig(config, loadUserConfigSync())
+  let vault = createVaultStore({
+    vaultRoot: settings.vaultRoot,
+    sopDir: settings.sopDir,
+    backupDir: join(settings.vaultRoot, settings.workbenchDir, '.backups'),
+  })
+  const pkulaw = createPkulawReader({ getConfig: () => settings })
+  let recordings = createRecordingStore({ root: join(settings.vaultRoot, settings.recordingsDir) })
+
+  /** 给界面用的配置状态。 */
+  function configStatus() {
+    return {
+      configured: settings.vaultRoot !== '',
+      vaultRoot: settings.vaultRoot,
+      sopDir: settings.sopDir,
+      workbenchDir: settings.workbenchDir,
+      recordingsDir: settings.recordingsDir,
+      dataDir: settings.dataDir,
+      emailSkillDir: settings.emailSkillDir,
+      configFile: USER_CONFIG_FILE,
+    }
+  }
+
+  /** 保存配置后立即重建依赖路径的部件，用户不用重启。 */
+  function rebuild() {
+    settings = resolveConfig(config, loadUserConfigSync())
+    vault = createVaultStore({
+      vaultRoot: settings.vaultRoot,
+      sopDir: settings.sopDir,
+      backupDir: join(settings.vaultRoot, settings.workbenchDir, '.backups'),
+    })
+    recordings = createRecordingStore({ root: join(settings.vaultRoot, settings.recordingsDir) })
+  }
+  /** ASR 会话的事件订阅者：sessionId → SSE 响应对象。 */
+  const asrSubscribers = new Map()
+  /** 每个 ASR 会话的最终结果，收尾时用来落盘转写稿。 */
+  const asrResults = new Map()
+  /** 用量角标：DeepSeek 余额 + 火山资源包剩余（Host 侧缓存 5 分钟）。 */
+  const usageReader = createUsageReader({ getConfigFile: () => settings.asrConfigFile })
+
+  const asrBridge = createAsrBridge({
+    getConfigFile: () => settings.asrConfigFile,
+    onEvent: (id, event) => {
+      if (event.type === 'final' || event.type === 'error') {
+        const waiter = asrWaiters.get(id)
+        if (waiter !== undefined) {
+          asrWaiters.delete(id)
+          if (event.type === 'final') waiter.resolve(event)
+          else waiter.reject(new Error(event.message ?? '转写失败'))
+        }
+      }
+      if (event.type === 'final') {
+        asrResults.set(id, event)
+        const recordingId = asrRecording.get(id)
+        const offsetMs = asrOffset.get(id) ?? 0
+        if (typeof recordingId === 'string') {
+          void writeTranscript(recordingId, event, '火山豆包流式 2.0', { offsetMs, append: offsetMs > 0 }).catch(() => {})
+        }
+        asrOffset.delete(id)
+      }
+      const subscriber = asrSubscribers.get(id)
+      if (subscriber === undefined) return
+      try {
+        subscriber.write('data: ' + JSON.stringify(event) + '\n\n')
+      } catch {
+        // 客户端已经断开。
+      }
+      if (event.type === 'final' || event.type === 'error') {
+        try {
+          subscriber.end()
+        } catch {
+          // 同上。
+        }
+        asrSubscribers.delete(id)
+        asrRecording.delete(id)
+        asrBridge.cancel(id)
+      }
+    },
+  })
+  /** ASR 会话 → 录音 id，定稿时据此把 转写.md 写到对应文件夹。 */
+  const asrRecording = new Map()
+  /** ASR 会话 → 该段音频在整条录音里的起点（毫秒），续写时用来接时间戳。 */
+  const asrOffset = new Map()
+  /** 服务端发起的转写：sessionId → {resolve, reject}，等定稿用。 */
+  const asrWaiters = new Map()
+
+  function formatClock(ms) {
+    const total = Math.max(0, Math.round((ms ?? 0) / 1000))
+    const minutes = Math.floor(total / 60)
+    const seconds = total % 60
+    return String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0')
+  }
+
+  /**
+   * 用已落盘的 audio.wav 转写（导入、或事后补转）。
+   * 节奏 ~30ms 一包（200ms 音频），比实时快几倍，又不至于把服务端灌爆。
+   */
+  async function transcribeRecordingFile(recordingId) {
+    const wav = await readFile(recordings.audioPath(recordingId))
+    if (wav.length <= 44) throw Object.assign(new Error('这条录音还没有音频数据'), { code: 'empty_audio' })
+    const pcm = wav.subarray(44)
+    const sessionId = await asrBridge.start()
+    let waiterTimer = null
+    const finalPromise = new Promise((resolve, reject) => {
+      asrWaiters.set(sessionId, { resolve, reject })
+      waiterTimer = setTimeout(() => {
+        if (asrWaiters.delete(sessionId)) reject(new Error('转写超时'))
+      }, 10 * 60 * 1000)
+      if (typeof waiterTimer?.unref === 'function') waiterTimer.unref()
+    })
+    asrRecording.set(sessionId, recordingId)
+    try {
+      for (let offset = 0; offset < pcm.length; offset += 3200) {
+        asrBridge.push(sessionId, pcm.subarray(offset, offset + 3200))
+        await new Promise((resolve) => setTimeout(resolve, 30))
+      }
+      asrBridge.finish(sessionId)
+      const result = await finalPromise
+      await writeTranscript(recordingId, result)
+      return result
+    } finally {
+      asrWaiters.delete(sessionId)
+      if (waiterTimer !== null) clearTimeout(waiterTimer)
+    }
+  }
+
+  /** 读 asr.json 里的听见 MCP 配置（只在 Host 内部用）。 */
+  async function readIflyrecConfig() {
+    const parsed = JSON.parse(await readFile(settings.asrConfigFile, 'utf8'))
+    const mcp = parsed?.iflyrecMcp
+    const endpoint = typeof mcp?.endpoint === 'string' && mcp.endpoint !== '' ? mcp.endpoint : 'http://127.0.0.1:3000/sse'
+    const apiKey = typeof mcp?.apiKey === 'string' ? mcp.apiKey : ''
+    if (apiKey === '') throw Object.assign(new Error('asr.json 里没有听见的 apiKey'), { code: 'no_iflyrec_key' })
+    return { endpoint, apiKey }
+  }
+
+  /** 用听见转写已落盘的一条录音。 */
+  async function transcribeWithIflyrecFile(recordingId) {
+    const config = await readIflyrecConfig()
+    const result = await transcribeWithIflyrec({
+      endpoint: config.endpoint,
+      apiKey: config.apiKey,
+      filePath: recordings.audioPath(recordingId),
+    })
+    await writeTranscript(recordingId, result, '讯飞听见（本机 MCP）')
+    // 听见会把结果文件写进录音目录，留着只会让文件夹变乱。
+    await recordings.cleanForeignArtifacts(recordingId)
+    return result
+  }
+
+  /** 转写稿落盘：带 frontmatter 与时间戳行，Obsidian 里直接可读。 */
+  async function writeTranscript(recordingId, result, engineLabel = '火山豆包流式 2.0', options = {}) {
+    const offsetMs = Number.isFinite(options.offsetMs) ? options.offsetMs : 0
+    const utterances = Array.isArray(result.utterances) && result.utterances.length > 0
+      ? result.utterances
+      : [{ text: result.text, start: 0, end: 0 }]
+    const lines = utterances
+      .filter((utterance) => String(utterance.text ?? '').trim() !== '')
+      .map((utterance) => '- **[' + formatClock((Number(utterance.start) || 0) + offsetMs) + ']** ' + String(utterance.text).trim())
+    if (lines.length === 0) return
+
+    // 静音切段后的续写：只追加句子、刷新时间，不重写整篇。
+    if (options.append === true) {
+      const existing = await recordings.readTranscript(recordingId)
+      if (existing !== null && existing.includes('\n# 转写稿')) {
+        const refreshed = existing
+          .replace(/转写时间:.*/, '转写时间: ' + new Date().toISOString())
+          .replace(/\n$/, '')
+        await recordings.writeTranscript(recordingId, refreshed + '\n' + lines.join('\n') + '\n')
+        return
+      }
+    }
+
+    const markdown = [
+      '---',
+      '录音: ' + recordingId,
+      '转写引擎: ' + engineLabel,
+      '转写时间: ' + new Date().toISOString(),
+      '---',
+      '',
+      '# 转写稿',
+      '',
+      ...lines,
+      '',
+    ].join('\n')
+    await recordings.writeTranscript(recordingId, markdown)
+  }
+
+  async function sopListing(query) {
+    const found = await vault.discover()
+    const matches = query === '' ? [] : await vault.search(query)
+    const tree = query === '' ? await vault.tree() : null
+    return {
+      ok: true,
+      source: found.source,
+      tree,
+      vaultRoot: settings.vaultRoot,
+      vaultName: settings.vaultRoot.split('/').filter(Boolean).pop() ?? '',
+      sopDir: settings.sopDir,
+      notes: found.notes,
+      matches,
+      stats: {
+        count: found.notes.length,
+        chars: found.notes.reduce((total, note) => total + note.chars, 0),
+        lastTouched: found.notes.reduce((latest, note) => Math.max(latest, note.mtimeMs), 0),
+        source: found.source,
+      },
+    }
+  }
+
+  /** 全局搜索：笔记正文 + 术语表 + 邮件规则库，混排并标注来源。 */
+  async function globalSearch(rawQuery) {
+    const query = String(rawQuery ?? '').trim()
+    if (query === '') return { ok: true, query: '', hits: [], counts: { sop: 0, glossary: 0, email: 0 } }
+    const lower = query.toLowerCase()
+    const hits = []
+    const counts = { sop: 0, glossary: 0, email: 0, recording: 0 }
+
+    for (const hit of await vault.search(query, { limit: 40 })) {
+      hits.push({ source: 'sop', path: hit.path, title: hit.title, group: hit.group, line: hit.line, snippet: hit.snippet })
+      counts.sop += 1
+    }
+
+    const glossary = await readGlossary(settings.glossaryFile)
+    for (const entry of glossary.entries) {
+      if (![entry.zh, entry.en, entry.field, entry.note].some((cell) => String(cell).toLowerCase().includes(lower))) continue
+      hits.push({
+        source: 'glossary',
+        id: entry.id,
+        title: entry.zh !== '' ? entry.zh : entry.en,
+        detail: [entry.en, entry.field, entry.note].filter((part) => part !== '').join(' · '),
+      })
+      counts.glossary += 1
+    }
+
+    // 录音：转写稿逐行 + 批注正文
+    try {
+      const items = await recordings.list()
+      for (const item of items.slice(0, 300)) {
+        let text = null
+        try {
+          text = await recordings.readTranscript(item.id)
+        } catch {
+          text = null
+        }
+        if (typeof text === 'string') {
+          const lines = text.split('\n')
+          for (let index = 0; index < lines.length; index += 1) {
+            if (!lines[index].toLowerCase().includes(lower)) continue
+            const stamp = /^-\s+\*\*\[(\d{2}):(\d{2})\]\*\*\s*(.*)$/.exec(lines[index].trim())
+            hits.push({
+              source: 'recording',
+              path: item.id,
+              title: item.title,
+              date: (/^(\d{4}-\d{2}-\d{2})/.exec(item.id) ?? [])[1] ?? new Date(item.createdAt).toISOString().slice(0, 10),
+              line: index,
+              time: stamp === null ? null : Number(stamp[1]) * 60 + Number(stamp[2]),
+              snippet: (stamp === null ? lines[index].trim() : stamp[3]).slice(0, 220),
+            })
+            counts.recording += 1
+            if (hits.length > 150) break
+          }
+        }
+        try {
+          for (const annotation of await recordings.readAnnotations(item.id)) {
+            const haystack = (annotation.quote + ' ' + annotation.note).toLowerCase()
+            if (!haystack.includes(lower)) continue
+            hits.push({
+              source: 'recording',
+              path: item.id,
+              title: item.title,
+              date: (/^(\d{4}-\d{2}-\d{2})/.exec(item.id) ?? [])[1] ?? new Date(item.createdAt).toISOString().slice(0, 10),
+              time: annotation.time ?? null,
+              note: annotation.note,
+              snippet: '批注：' + (annotation.note !== '' ? annotation.note : annotation.quote),
+            })
+            counts.recording += 1
+          }
+        } catch {
+          // 单条录音的批注读不了不影响整次搜索。
+        }
+      }
+    } catch {
+      // 录音目录读不了不影响其它来源。
+    }
+
+    try {
+      const rulesPath = join(settings.emailSkillDir, 'references', 'style-rules.md')
+      const lines = String(await readFile(rulesPath, 'utf8')).split(/\r?\n/)
+      for (let index = 0; index < lines.length; index += 1) {
+        if (!lines[index].toLowerCase().includes(lower)) continue
+        if (lines[index].trim() === '') continue
+        hits.push({ source: 'email', path: rulesPath, title: '邮件规则库', line: index + 1, snippet: lines[index].trim().slice(0, 220) })
+        counts.email += 1
+      }
+    } catch {
+      // 规则库读不到不影响这次搜索。
+    }
+
+    return { ok: true, query, hits, counts }
+  }
+
+  /** 卡片摘要：每个 kind 一个，异常只写进该卡片的 error。 */
+  async function cardSummary(card, cachedBalance) {
+    switch (card.kind) {
+      case 'sop': {
+        const found = await vault.discover()
+        return {
+          status: 'ready',
+          stats: {
+            count: found.notes.length,
+            chars: found.notes.reduce((total, note) => total + note.chars, 0),
+            source: found.source,
+            lastTouched: found.notes.reduce((latest, note) => Math.max(latest, note.mtimeMs), 0),
+          },
+          warning: found.source === 'spotlight' ? '目录枚举被系统挡住，笔记列表走 Spotlight' : undefined,
+        }
+      }
+      case 'pkulaw': {
+        if (cachedBalance !== null) {
+          return cachedBalance.ok === true
+            ? { status: cachedBalance.balance.stale === true ? 'stale' : 'ready', balance: cachedBalance.balance, warning: cachedBalance.warning }
+            : { status: 'error', error: { code: cachedBalance.code, message: cachedBalance.message } }
+        }
+        return { status: 'idle', hint: '点刷新读取余额' }
+      }
+      case 'email': {
+        const stats = await readEmailStats(settings.emailSkillDir)
+        return stats.ok === true
+          ? {
+              status: 'ready',
+              stats: { hard: stats.hard, soft: stats.soft, watch: stats.watch, absorbed: stats.absorbed, lastMerge: stats.lastMerge, mtimeMs: stats.mtimeMs },
+              warning: stats.inconsistency,
+            }
+          : { status: 'error', error: { code: stats.code, message: stats.message } }
+      }
+      case 'glossary': {
+        const current = await readGlossary(settings.glossaryFile)
+        return {
+          status: 'ready',
+          stats: { count: current.entries.length, exists: current.exists },
+          warning: current.warning,
+        }
+      }
+      case 'reimburse': {
+        const probe = await probePath(settings.reimbursementTemplate)
+        return { status: probe.status === 'ok' ? 'ready' : 'idle', template: probe }
+      }
+      case 'prompt': {
+        const prompts = await readPrompts(settings.promptsFile)
+        const promptId = card.promptId ?? card.id
+        const prompt = prompts.prompts[promptId]
+        return prompt === undefined
+          ? { status: 'error', error: { code: 'missing_prompt', message: 'prompts.json 里没有 ' + promptId } }
+          : { status: 'ready', prompt: { promptId, title: prompt.title } }
+      }
+      default:
+        return { status: 'unsupported', hint: '暂不支持这个卡片类型：' + card.kind }
+    }
+  }
+
+  async function buildOverview() {
+    const cardsResult = await readCards(settings.cardsFile)
+    const warnings = []
+    if (cardsResult.warning !== undefined) warnings.push(cardsResult.warning)
+    const cachedBalance = pkulaw.peek()
+
+    const cards = []
+    for (const card of cardsResult.cards) {
+      try {
+        cards.push({ ...card, ...(await cardSummary(card, cachedBalance)) })
+      } catch (error) {
+        cards.push({ ...card, status: 'error', error: { code: 'card_failed', message: describe(error) } })
+      }
+    }
+
+    const vaultName = settings.vaultRoot.split('/').filter(Boolean).pop() ?? ''
+    return {
+      ok: true,
+      version: '0.3.0',
+      generatedAt: new Date().toISOString(),
+      source: cardsResult.source,
+      warnings,
+      vault: { root: settings.vaultRoot, sopDir: settings.sopDir, workbenchDir: settings.workbenchDir, name: vaultName },
+      dataDir: settings.dataDir,
+      cards,
+    }
+  }
+
+  const handler = async (req, res) => {
+    if (!isLoopbackRequest(req)) {
+      writeError(res, 403, 'forbidden', 'loopback-only')
+      return
+    }
+    let url
+    try {
+      url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    } catch {
+      writeError(res, 400, 'bad_request', 'invalid url')
+      return
+    }
+    const route = url.pathname.slice(API_PREFIX.length) || '/'
+    const method = req.method ?? 'GET'
+
+    try {
+      /* ---------------------------------------------------------- 首次配置 */
+      if (route === '/config') {
+        if (method === 'GET') return writeJson(res, 200, { ok: true, ...configStatus() })
+        if (method === 'PUT') {
+          const body = await readJsonBody(req)
+          const vaultRoot = typeof body.vaultRoot === 'string' ? body.vaultRoot.trim() : ''
+          if (vaultRoot === '') return writeError(res, 400, 'bad_request', '请填写 Obsidian 库的绝对路径')
+          if (!vaultRoot.startsWith('/')) return writeError(res, 400, 'bad_request', '请填写绝对路径（以 / 开头）')
+          const next = {
+            vaultRoot,
+            sopDir: typeof body.sopDir === 'string' && body.sopDir.trim() !== '' ? body.sopDir.trim() : 'SOP',
+            workbenchDir: typeof body.workbenchDir === 'string' && body.workbenchDir.trim() !== '' ? body.workbenchDir.trim() : 'Workbench',
+            recordingsDir: typeof body.recordingsDir === 'string' && body.recordingsDir.trim() !== '' ? body.recordingsDir.trim() : 'Recordings',
+            dataDir: typeof body.dataDir === 'string' && body.dataDir.trim() !== '' ? body.dataDir.trim() : '',
+            emailSkillDir: typeof body.emailSkillDir === 'string' ? body.emailSkillDir.trim() : '',
+          }
+          await mkdir(join(homedir(), '.dsh-workbench'), { recursive: true })
+          await writeFile(USER_CONFIG_FILE, JSON.stringify(next, null, 2) + '\n', 'utf8')
+          rebuild()
+          return writeJson(res, 200, { ok: true, ...configStatus() })
+        }
+        return writeError(res, 405, 'method_not_allowed', 'GET or PUT')
+      }
+
+      // 没配 vault 之前，除了 /config 之外一律拒绝，避免满屏报错
+      if (settings.vaultRoot === '') return writeError(res, 409, 'not_configured', '还没有配置 Obsidian 库路径')
+
+      /* ---------------------------------------------------------- 只读 */
+      if (route === '/overview') {
+        if (method !== 'GET') return writeError(res, 405, 'method_not_allowed', 'GET only')
+        return writeJson(res, 200, await buildOverview())
+      }
+      if (route === '/cards') {
+        if (method !== 'GET') return writeError(res, 405, 'method_not_allowed', 'GET only')
+        return writeJson(res, 200, { ok: true, ...(await readCards(settings.cardsFile)) })
+      }
+      if (route === '/prompts') {
+        if (method !== 'GET') return writeError(res, 405, 'method_not_allowed', 'GET only')
+        return writeJson(res, 200, { ok: true, ...(await readPrompts(settings.promptsFile)) })
+      }
+      if (route === '/open-obsidian') {
+        if (method !== 'POST') return writeError(res, 405, 'method_not_allowed', 'POST only')
+        const body = await readJsonBody(req)
+        if (typeof body.path !== 'string' || body.path === '') return writeError(res, 400, 'bad_request', '需要 path')
+        const uri = vault.uriFor(body.path)
+        await new Promise((resolve, reject) => {
+          execFile(settings.openCommand, [uri], { timeout: 5000 }, (error) => {
+            if (error !== null) reject(Object.assign(new Error('唤起 Obsidian 失败：' + describe(error)), { code: 'open_failed' }))
+            else resolve()
+          })
+        })
+        return writeJson(res, 200, { ok: true, uri })
+      }
+      // 打开外部控制台（只放行白名单域名，避免变成任意 URL 的执行器）
+      if (route === '/open-url') {
+        if (method !== 'POST') return writeError(res, 405, 'method_not_allowed', 'POST only')
+        const body = await readJsonBody(req)
+        const target = typeof body.url === 'string' ? body.url.trim() : ''
+        const ALLOWED = ['https://console.volcengine.com/', 'https://api.deepseek.com/', 'https://www.volcengine.com/']
+        if (!ALLOWED.some((prefix) => target.startsWith(prefix))) {
+          return writeError(res, 400, 'bad_request', '只允许打开火山的控制台页面')
+        }
+        await new Promise((resolve, reject) => {
+          execFile(settings.openCommand, [target], { timeout: 5000 }, (error) => {
+            if (error !== null) reject(Object.assign(new Error('打开网页失败：' + describe(error)), { code: 'open_failed' }))
+            else resolve()
+          })
+        })
+        return writeJson(res, 200, { ok: true, url: target })
+      }
+
+      if (route === '/email') {
+        if (method !== 'GET') return writeError(res, 405, 'method_not_allowed', 'GET only')
+        return writeJson(res, 200, { ok: true, ...(await readEmailStats(settings.emailSkillDir)) })
+      }
+
+      /* ------------------------------------------------------------- SOP */
+      if (route === '/sop') {
+        if (method !== 'GET') return writeError(res, 405, 'method_not_allowed', 'GET only')
+        const notePath = url.searchParams.get('note')
+        if (notePath !== null && notePath !== '') {
+          return writeJson(res, 200, { ok: true, note: await vault.readNote(notePath) })
+        }
+        return writeJson(res, 200, await sopListing((url.searchParams.get('q') ?? '').trim()))
+      }
+      if (route === '/search') {
+        if (method !== 'GET') return writeError(res, 405, 'method_not_allowed', 'GET only')
+        return writeJson(res, 200, await globalSearch(url.searchParams.get('q') ?? ''))
+      }
+      if (route === '/sop/refresh') {
+        if (method !== 'POST') return writeError(res, 405, 'method_not_allowed', 'POST only')
+        vault.invalidate()
+        return writeJson(res, 200, await sopListing((url.searchParams.get('q') ?? '').trim()))
+      }
+      if (route === '/sop/note') {
+        if (method === 'PUT') {
+          const body = await readJsonBody(req)
+          if (typeof body.path !== 'string' || typeof body.text !== 'string') {
+            return writeError(res, 400, 'bad_request', '需要 path 与 text')
+          }
+          return writeJson(res, 200, { ok: true, note: await vault.writeNote(body.path, body.text, { expectedSha1: body.expectedSha1 }) })
+        }
+        if (method === 'POST') {
+          const body = await readJsonBody(req)
+          if (typeof body.path !== 'string' || typeof body.text !== 'string') {
+            return writeError(res, 400, 'bad_request', '需要 path 与 text')
+          }
+          return writeJson(res, 200, { ok: true, note: await vault.createNote(body.path, body.text) })
+        }
+        return writeError(res, 405, 'method_not_allowed', 'PUT or POST')
+      }
+
+      /* -------------------------------------------------------- 法宝余额 */
+      if (route === '/client-log') {
+        if (method !== 'POST') return writeError(res, 405, 'method_not_allowed', 'POST only')
+        const body = await readJsonBody(req)
+        const line = [
+          new Date().toISOString(),
+          String(body.where ?? 'client'),
+          String(body.message ?? '').slice(0, 800),
+          String(body.stack ?? '').slice(0, 2000),
+        ].join(' | ')
+        try {
+          await appendFile(join(settings.dataDir, 'client-errors.log'), line + '\n', 'utf8')
+        } catch {
+          // 日志写不进去不影响客户端
+        }
+        return writeJson(res, 200, { ok: true })
+      }
+
+      if (route === '/email/rules') {
+        const rulesPath = join(settings.emailSkillDir, 'references', 'style-rules.md')
+        if (method === 'GET') {
+          const text = await readFile(rulesPath, 'utf8')
+          const parsed = parseRules(text)
+          return writeJson(res, 200, { ok: true, path: rulesPath, items: parsed.items })
+        }
+        if (method === 'PUT') {
+          const body = await readJsonBody(req)
+          if (!Array.isArray(body.items)) return writeError(res, 400, 'bad_request', '需要 items 数组')
+          const text = await readFile(rulesPath, 'utf8')
+          const parsed = parseRules(text)
+          const allowed = new Set(['hard', 'soft', 'watch'])
+          const clean = body.items.map((item) => ({
+            id: String(item?.id ?? '').trim(),
+            title: String(item?.title ?? '').trim(),
+            section: allowed.has(item?.section) ? item.section : 'watch',
+            fields: {
+              规则: String(item?.fields?.规则 ?? '').trim(),
+              证据: String(item?.fields?.证据 ?? '').trim(),
+              来源: String(item?.fields?.来源 ?? '').trim(),
+              强度: String(item?.fields?.强度 ?? '').trim(),
+              反例: String(item?.fields?.反例 ?? '').trim(),
+            },
+          }))
+          for (const item of clean) {
+            if (!/^R-\d+$/.test(item.id)) return writeError(res, 400, 'bad_request', '规则编号必须形如 R-001：' + item.id)
+            if (item.title === '') return writeError(res, 400, 'bad_request', item.id + ' 缺少标题')
+            if (item.fields.规则 === '') return writeError(res, 400, 'bad_request', item.id + ' 缺少「规则」字段')
+          }
+          // 写前备份：不放技能目录，统一放数据目录的 .backups
+          const backupDir = join(settings.dataDir, '.backups')
+          await mkdir(backupDir, { recursive: true })
+          await writeFile(join(backupDir, 'email-rules-' + new Date().toISOString().replace(/[:.]/g, '-') + '.md'), text, 'utf8')
+          applyItems(parsed, clean)
+          refreshCounts(parsed, clean)
+          const next = renderRules(parsed)
+          await writeFile(rulesPath, next, 'utf8')
+          return writeJson(res, 200, { ok: true, items: clean })
+        }
+        return writeError(res, 405, 'method_not_allowed', 'GET or PUT')
+      }
+
+      if (route === '/usage') {
+        if (method !== 'GET') return writeError(res, 405, 'method_not_allowed', 'GET only')
+        const force = url.searchParams.get('refresh') === '1'
+        return writeJson(res, 200, { ok: true, ...(await usageReader.get(force)) })
+      }
+
+      if (route === '/pkulaw') {
+        if (method !== 'GET') return writeError(res, 405, 'method_not_allowed', 'GET only')
+        const result = await pkulaw.get()
+        if (result.ok !== true) return writeJson(res, 502, { ok: false, code: result.code, message: result.message })
+        return writeJson(res, 200, { ok: true, ...result })
+      }
+      if (route === '/pkulaw/refresh') {
+        if (method !== 'POST') return writeError(res, 405, 'method_not_allowed', 'POST only')
+        const result = await pkulaw.get({ force: true })
+        if (result.ok !== true) return writeJson(res, 502, { ok: false, code: result.code, message: result.message })
+        return writeJson(res, 200, { ok: true, ...result })
+      }
+
+      /* -------------------------------------------------- 术语表 / 句式库 */
+      const entryTables = {
+        '/glossary': {
+          file: settings.glossaryFile,
+          api: { read: readGlossary, add: addGlossary, update: updateGlossary, remove: deleteGlossary, keys: ['zh', 'en', 'field', 'tag', 'note'] },
+        },
+      }
+      for (const [base, config] of Object.entries(entryTables)) {
+        if (route === base || route.startsWith(base + '/')) {
+          await handleEntryTable({ req, res, url, method, route, base, file: config.file, api: config.api })
+          return
+        }
+      }
+
+      /* ------------------------------------------------------------ 录音 */
+      if (route === '/recordings') {
+        if (method === 'GET') {
+          const items = await recordings.list()
+          return writeJson(res, 200, { ok: true, items, dir: join(settings.vaultRoot, settings.recordingsDir) })
+        }
+        if (method === 'POST') {
+          const body = await readJsonBody(req)
+          const created = await recordings.create({ title: typeof body.title === 'string' ? body.title : '' })
+          return writeJson(res, 200, { ok: true, id: created.id, durationMs: 0 })
+        }
+        return writeError(res, 405, 'method_not_allowed', 'GET or POST')
+      }
+
+      const recordingMatch = /^\/recordings\/([^/]+)\/(chunk|finalize|audio|transcript|peaks|transcribe|rename|annotations)$/.exec(route)
+      const recordingOne = /^\/recordings\/([^/]+)$/.exec(route)
+      if (recordingMatch !== null) {
+        const id = decodeURIComponent(recordingMatch[1])
+        const action = recordingMatch[2]
+        if (action === 'chunk') {
+          if (method !== 'POST') return writeError(res, 405, 'method_not_allowed', 'POST only')
+          const pcm = await readRawBody(req, 8 * 1024 * 1024)
+          const written = await recordings.appendPcm(id, pcm)
+          const asrId = url.searchParams.get('asr')
+          if (asrId !== null && asrId !== '') asrBridge.push(asrId, pcm)
+          return writeJson(res, 200, { ok: true, ...written })
+        }
+        if (action === 'annotations') {
+          if (method === 'GET') {
+            return writeJson(res, 200, { ok: true, annotations: await recordings.readAnnotations(id) })
+          }
+          if (method === 'PUT') {
+            const body = await readJsonBody(req)
+            if (!Array.isArray(body.annotations)) return writeError(res, 400, 'bad_request', '需要 annotations 数组')
+            const saved = await recordings.writeAnnotations(id, body.annotations)
+            return writeJson(res, 200, { ok: true, annotations: saved })
+          }
+          return writeError(res, 405, 'method_not_allowed', 'GET or PUT')
+        }
+        if (action === 'rename') {
+          if (method !== 'POST') return writeError(res, 405, 'method_not_allowed', 'POST only')
+          const body = await readJsonBody(req)
+          const renamed = await recordings.renameRecording(id, typeof body.title === 'string' ? body.title : '')
+          return writeJson(res, 200, { ok: true, id: renamed.id })
+        }
+        if (action === 'transcribe') {
+          if (method !== 'POST') return writeError(res, 405, 'method_not_allowed', 'POST only')
+          const body = await readJsonBody(req)
+          const engine = body.engine === 'iflyrec' ? 'iflyrec' : 'volc'
+          const result = engine === 'iflyrec' ? await transcribeWithIflyrecFile(id) : await transcribeRecordingFile(id)
+          return writeJson(res, 200, { ok: true, engine, text: result.text, utterances: result.utterances?.length ?? 0 })
+        }
+        if (action === 'finalize') {
+          if (method !== 'POST') return writeError(res, 405, 'method_not_allowed', 'POST only')
+          return writeJson(res, 200, { ok: true, ...(await recordings.finalize(id)) })
+        }
+        if (action === 'peaks') {
+          if (method !== 'GET') return writeError(res, 405, 'method_not_allowed', 'GET only')
+          return writeJson(res, 200, { ok: true, peaks: await recordings.readPeaks(id) })
+        }
+        if (action === 'audio') {
+          if (method !== 'GET') return writeError(res, 405, 'method_not_allowed', 'GET only')
+          return serveAudio(req, res, recordings.audioPath(id))
+        }
+        // transcript
+        if (method === 'GET') {
+          const text = await recordings.readTranscript(id)
+          return writeJson(res, 200, { ok: true, exists: text !== null, text: text ?? '' })
+        }
+        if (method === 'PUT') {
+          const body = await readJsonBody(req)
+          if (typeof body.text !== 'string') return writeError(res, 400, 'bad_request', '需要 text')
+          await recordings.writeTranscript(id, body.text)
+          return writeJson(res, 200, { ok: true })
+        }
+        return writeError(res, 405, 'method_not_allowed', 'GET or PUT')
+      }
+
+      if (recordingOne !== null) {
+        const id = decodeURIComponent(recordingOne[1])
+        if (method !== 'DELETE') return writeError(res, 405, 'method_not_allowed', 'DELETE only')
+        const moved = await recordings.remove(id)
+        return writeJson(res, 200, { ok: true, movedTo: moved.movedTo })
+      }
+
+      if (route === '/recording/asr/start') {
+        if (method !== 'POST') return writeError(res, 405, 'method_not_allowed', 'POST only')
+        const body = await readJsonBody(req)
+        const sessionId = await asrBridge.start()
+        if (typeof body.recordingId === 'string' && body.recordingId !== '') {
+          asrRecording.set(sessionId, body.recordingId)
+        }
+        if (Number.isFinite(body.offsetMs) && body.offsetMs > 0) {
+          asrOffset.set(sessionId, Math.round(body.offsetMs))
+        }
+        return writeJson(res, 200, { ok: true, sessionId })
+      }
+
+      const asrMatch = /^\/recording\/asr\/([^/]+)\/(events|chunk|finish)$/.exec(route)
+      if (asrMatch !== null) {
+        const sessionId = decodeURIComponent(asrMatch[1])
+        const action = asrMatch[2]
+        if (action === 'chunk') {
+          if (method !== 'POST') return writeError(res, 405, 'method_not_allowed', 'POST only')
+          const pcm = await readRawBody(req, 8 * 1024 * 1024)
+          const accepted = asrBridge.push(sessionId, pcm)
+          return writeJson(res, 200, { ok: true, accepted })
+        }
+        if (action === 'finish') {
+          if (method !== 'POST') return writeError(res, 405, 'method_not_allowed', 'POST only')
+          const pcm = await readRawBody(req, 8 * 1024 * 1024)
+          const accepted = asrBridge.finish(sessionId, pcm)
+          return writeJson(res, 200, { ok: true, accepted })
+        }
+        // events：SSE，一直开到定稿或出错
+        if (method !== 'GET') return writeError(res, 405, 'method_not_allowed', 'GET only')
+        res.writeHead(200, {
+          'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-store',
+          'connection': 'keep-alive',
+          'x-accel-buffering': 'no',
+          'referrer-policy': 'no-referrer',
+        })
+        res.write(': connected\n\n')
+        asrSubscribers.set(sessionId, res)
+        const result = asrResults.get(sessionId)
+        if (result !== undefined) {
+          res.write('data: ' + JSON.stringify(result) + '\n\n')
+          res.end()
+          asrSubscribers.delete(sessionId)
+          return
+        }
+        await new Promise((resolve) => {
+          req.on('close', () => {
+            asrSubscribers.delete(sessionId)
+            resolve()
+          })
+          res.on('close', () => {
+            asrSubscribers.delete(sessionId)
+            resolve()
+          })
+        })
+        return
+      }
+
+      return writeError(res, 404, 'not_found', 'unknown route: ' + route)
+    } catch (error) {
+      const code = error !== null && typeof error === 'object' && typeof error.code === 'string' ? error.code : 'internal_error'
+      let status = 500
+      if (code === 'bad_json' || code === 'too_large' || code === 'bad_path' || code === 'bad_request' || code === 'bad_id') status = 400
+      if (code === 'no_asr_config' || code === 'no_asr_key' || code === 'asr_config_failed') status = 503
+      if (code === 'not_found') status = 404
+      if (code === 'conflict' || code === 'exists') status = 409
+      // 顶层兜底：绝不让异常落到 webserver 的空体 400（客户端会报"响应不是合法 JSON"并丢掉真因）。
+      writeError(res, status, code, describe(error))
+    }
+  }
+
+  ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: API_PREFIX, handler }))
+  ctx.logger?.info?.('dsh-workbench: routes mounted at %s', API_PREFIX)
+}

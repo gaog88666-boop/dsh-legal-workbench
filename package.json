@@ -1,0 +1,58 @@
+{
+  "name": "dsh-workbench",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Right-sidebar workbench for DeepSeek Harness: read/write your Obsidian notes, SOP lookup, glossary, recordings with live transcription and annotations, global search, optional usage badges.",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "lib/**/*.js",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "README.zh.md",
+    "PRIVACY.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "obsidian",
+    "notes",
+    "transcription",
+    "workbench"
+  ],
+  "engines": {
+    "dsh": ">=0.2.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gaog88666-boop/dsh-workbench.git"
+  },
+  "homepage": "https://github.com/gaog88666-boop/dsh-workbench#readme",
+  "bugs": {
+    "url": "https://github.com/gaog88666-boop/dsh-workbench/issues"
+  }
+}
