@@ -107,9 +107,12 @@ function resolveConfig(config, configFile = null) {
     if (typeof merged[key] === 'string') merged[key] = merged[key].trim()
   }
   // 用户配置文件的优先级介于「默认值」与「profile 配置」之间
-  if (merged.vaultRoot === '' && configFile !== null) merged.vaultRoot = configFile.vaultRoot ?? ''
-  if (merged.dataDir === '' && configFile !== null) merged.dataDir = configFile.dataDir ?? ''
-  if (merged.emailSkillDir === '' && configFile !== null) merged.emailSkillDir = configFile.emailSkillDir ?? ''
+  if (configFile !== null && typeof configFile === 'object') {
+    for (const key of ['vaultRoot', 'dataDir', 'emailSkillDir', 'sopDir', 'workbenchDir', 'recordingsDir']) {
+      const value = typeof configFile[key] === 'string' ? configFile[key].trim() : ''
+      if (value !== '' && (merged[key] === '' || merged[key] === DEFAULT_CONFIG[key] || key === 'vaultRoot')) merged[key] = value
+    }
+  }
   if (merged.dataDir === '') merged.dataDir = join(homedir(), '.dsh-workbench')
   if (merged.cardsFile === '') merged.cardsFile = join(merged.dataDir, 'cards.json')
   if (merged.promptsFile === '') merged.promptsFile = join(merged.dataDir, 'prompts.json')
@@ -641,6 +644,9 @@ export function apply(ctx, config) {
         return { status: 'idle', hint: '点刷新读取余额' }
       }
       case 'email': {
+        if (settings.emailSkillDir === '') {
+          return { status: 'idle', warning: '未配置邮件规则库（可选）。在配置里填 emailSkillDir 后出现。' }
+        }
         const stats = await readEmailStats(settings.emailSkillDir)
         return stats.ok === true
           ? {
@@ -671,6 +677,8 @@ export function apply(ctx, config) {
           : { status: 'ready', prompt: { promptId, title: prompt.title } }
       }
       default:
+        // 录音 / 搜索 / 查找 / 提示词这几类由界面自己渲染，服务端没有可汇总的东西
+        if (['recorder', 'search', 'find', 'prompt'].includes(card.kind)) return { status: 'ready' }
         return { status: 'unsupported', hint: '暂不支持这个卡片类型：' + card.kind }
     }
   }
@@ -736,6 +744,14 @@ export function apply(ctx, config) {
             emailSkillDir: typeof body.emailSkillDir === 'string' ? body.emailSkillDir.trim() : '',
           }
           await mkdir(join(homedir(), '.dsh-workbench'), { recursive: true })
+          // 把该有的目录先建出来：用户不需要自己去 Finder 里新建
+          for (const dir of [next.sopDir, next.workbenchDir, next.recordingsDir]) {
+            try {
+              await mkdir(join(vaultRoot, dir), { recursive: true })
+            } catch {
+              // 建不了（权限）不影响保存，界面会提示读不到
+            }
+          }
           await writeFile(USER_CONFIG_FILE, JSON.stringify(next, null, 2) + '\n', 'utf8')
           rebuild()
           return writeJson(res, 200, { ok: true, ...configStatus() })

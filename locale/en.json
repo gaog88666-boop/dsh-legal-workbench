@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Workbench",
-    "description": "Session right-pane workbench: SOP lookup, Pkulaw points, email drafting, glossary, and reimbursement entry, each inserting its prompt into the current composer."
+    "title": "Legal Workbench",
+    "description": "A legal-practice workbench in the right sidebar: notes and SOPs, recordings with live transcription and annotations, glossary, global search; optional email rules library and usage badges."
   }
 }
