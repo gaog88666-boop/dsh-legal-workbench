@@ -10,16 +10,37 @@ All files stay on your computer. No account, no telemetry. See [PRIVACY.md](./PR
 
 ## Install
 
+**Requires** a DSH installation (0.2.0 or newer — check with `dsh --version`) and network access
+(the package comes from npm).
+
+Pick the command that matches your DSH:
+
+**DSH Desktop app**
+
 ```sh
 dsh plugin --profile desktop add dsh-legal-workbench
 ```
 
-Then restart DSH.
+**Self-hosted DSH Web** (on your server)
+
+```sh
+dsh plugin --profile web add dsh-legal-workbench
+```
+
+Using a custom profile name? Replace `desktop` / `web` with yours (see `~/.dsh/profiles/`).
+
+Then **restart DSH** and click the workbench icon next to the session title, or press `⌥W`.
+
+No Obsidian required, no API keys, no account.
+
+> Fully verified on macOS only. Other platforms install and run, but the two actions that call
+> system commands ("open in Obsidian", "open console") may need a config tweak.
 
 ## First run
 
 Click the workbench icon next to the session title (or press `⌥W`).
-The first time, it asks for one thing: the full path of your Obsidian vault.
+The first time, it asks for one thing: the full path of a folder holding your Markdown notes
+(an Obsidian vault, or any folder — the plugin only touches `.md` files).
 Fill it in and press save — that's it.
 
 Nothing else is required. The optional extras (transcription, usage badges, Pkulaw points)

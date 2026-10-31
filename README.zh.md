@@ -2,11 +2,29 @@
 
 ## 安装
 
+**前提**：本机已经装了 DSH（0.2.0 或更新，`dsh --version` 可查）；安装时需要联网（从 npm 下载）。
+
+按你的 DSH 形态选一条：
+
+**DSH 桌面 App**
+
 ```sh
 dsh plugin --profile desktop add dsh-legal-workbench
 ```
 
-装完重启 DSH。
+**自己部署的 DSH Web**（服务器上）
+
+```sh
+dsh plugin --profile web add dsh-legal-workbench
+```
+
+如果你用的是自定义 profile，把 `desktop` / `web` 换成你自己的 profile 名（在 `~/.dsh/profiles/` 下能看到）。
+
+装完**重启 DSH**，然后点会话标题旁的工作台图标，或按 `⌥W`。
+
+不需要 Obsidian，不需要任何密钥，也不需要登录任何账号。
+
+> 目前只在 macOS 上完整验证过。其它系统可以安装运行，但「打开 Obsidian」「打开控制台」这两个动作依赖系统命令，可能需要手动改配置。
 
 ## 第一次使用
 
