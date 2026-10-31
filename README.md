@@ -53,6 +53,21 @@ stay dormant until you provide your own credentials.
   overlay instead of failing silently.
 - Transcription is off unless you configure a Volcengine key; recording and playback work without it.
 
+
+## Known limitations
+
+- **Images in notes are not rendered.** They appear as a filename label (e.g. `图片 photo.png`).
+  Everything else in a note (headings, lists, bold, code, tables as text, wikilinks) is shown.
+- Markdown support is deliberately minimal: no HTML, no embedded PDFs, no mermaid rendering.
+- Annotations anchor to the **first line** of a multi-line selection.
+- Highlight colour is fixed (yellow); the storage supports more, the UI does not expose it yet.
+- The reimbursement card only checks that a template exists; it does not parse it yet.
+- Transcribing an imported audio file shows no progress bar.
+- The workbench reads and writes the vault directly. Edits made in Obsidian appear after a refresh,
+  and edits made here appear in Obsidian immediately (same files).
+- DSH gives each session its own right sidebar; if the workbench cannot dock there it opens as an
+  overlay instead of failing silently.
+
 ## License
 
 MIT

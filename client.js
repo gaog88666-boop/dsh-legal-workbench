@@ -1391,12 +1391,12 @@ window.__ModuleLoader__.load({
               h('div', { className: 'dsh-wb-head' },
                 h('div', null,
                   h('h2', null, '先配置一下'),
-                  h('div', { className: 'dsh-wb-sub' }, '工作台读写你 Obsidian 库里的笔记。填一次，以后不用再管。'),
+                  h('div', { className: 'dsh-wb-sub' }, '工作台读写一个文件夹里的 Markdown 笔记。填一次，以后不用再管。'),
                 ),
               ),
               h('div', { className: 'dsh-wb-body' },
                 h('div', { className: 'dsh-wb-card' },
-                  h('div', { className: 'dsh-wb-note' }, 'Obsidian 库的完整路径'),
+                  h('div', { className: 'dsh-wb-note' }, '笔记文件夹的完整路径（Obsidian 库，或任意文件夹都可以）'),
                   h('input', {
                     className: 'dsh-wb-input', style: { marginTop: '4px' },
                     placeholder: '/Users/你的名字/Documents/Obsidian',
@@ -1420,6 +1420,8 @@ window.__ModuleLoader__.load({
                   ),
                 ),
                 h('p', { className: 'dsh-wb-note', style: { marginTop: '10px' } },
+                  '没有 Obsidian 也能用：指向任意文件夹即可，插件只读写里面的 .md 文件，不会改动其它内容。'),
+                h('p', { className: 'dsh-wb-note', style: { marginTop: '6px' } },
                   '路径填错也没关系，保存后如果读不到东西，回到这里改即可。所有数据只留在你自己的电脑上。'),
               ),
             )
