@@ -75,6 +75,15 @@ stay dormant until you provide your own credentials.
 - Transcription is off unless you configure a Volcengine key; recording and playback work without it.
 
 
+## Troubleshooting
+
+- **The panel opens but stays empty**: click the **refresh** button at the top right of the panel.
+  This is a known first-load issue in 1.1.0; one refresh fixes it.
+- **Clicking the icon does nothing**: some sessions have no right sidebar yet, so the workbench
+  opens as an overlay instead (shortcut `⌥W`).
+- **It asks you to configure something**: it just needs the folder holding your Markdown notes.
+  Fill it in once.
+
 ## Known limitations
 
 - **Images in notes are not rendered.** They appear as a filename label (e.g. `图片 photo.png`).
