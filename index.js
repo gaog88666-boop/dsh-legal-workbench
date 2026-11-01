@@ -648,13 +648,24 @@ export function apply(ctx, config) {
           return { status: 'idle', warning: '未配置邮件规则库（可选）。在配置里填 emailSkillDir 后出现。' }
         }
         const stats = await readEmailStats(settings.emailSkillDir)
-        return stats.ok === true
-          ? {
-              status: 'ready',
-              stats: { hard: stats.hard, soft: stats.soft, watch: stats.watch, absorbed: stats.absorbed, lastMerge: stats.lastMerge, mtimeMs: stats.mtimeMs },
-              warning: stats.inconsistency,
-            }
-          : { status: 'error', error: { code: stats.code, message: stats.message } }
+        if (stats.ok !== true) return { status: 'error', error: { code: stats.code, message: stats.message } }
+        // 「已吸收终稿数」以 examples/approved/ 的实际文件数为准：表里的数字只是记账，容易与文件脱节
+        let draftCount = 0
+        try {
+          const names = await readdir(join(settings.emailSkillDir, 'examples', 'approved'))
+          draftCount = names.filter((name) => name.toLowerCase().endsWith('.md') && name.toLowerCase() !== 'readme.md').length
+        } catch {
+          draftCount = 0
+        }
+        const claimed = Number(stats.absorbed ?? 0)
+        const drift = claimed !== draftCount
+          ? '规则库记着 ' + claimed + ' 份已吸收终稿，但 approved 目录里实际只有 ' + draftCount + ' 份文件'
+          : undefined
+        return {
+          status: 'ready',
+          stats: { hard: stats.hard, soft: stats.soft, watch: stats.watch, absorbed: draftCount, claimedAbsorbed: claimed, lastMerge: stats.lastMerge, mtimeMs: stats.mtimeMs },
+          warning: drift ?? stats.inconsistency,
+        }
       }
       case 'glossary': {
         const current = await readGlossary(settings.glossaryFile)
@@ -804,6 +815,44 @@ export function apply(ctx, config) {
           })
         })
         return writeJson(res, 200, { ok: true, url: target })
+      }
+
+      // 已批准终稿：列 examples/approved/ 下的 md（README 不算）
+      if (route === '/email/drafts') {
+        if (method !== 'GET') return writeError(res, 405, 'method_not_allowed', 'GET only')
+        const dir = join(settings.emailSkillDir, 'examples', 'approved')
+        let names = []
+        try {
+          names = await readdir(dir)
+        } catch {
+          return writeJson(res, 200, { ok: true, count: 0, dir, items: [], missing: true })
+        }
+        const items = []
+        for (const name of names) {
+          if (!name.toLowerCase().endsWith('.md') || name.toLowerCase() === 'readme.md') continue
+          try {
+            const info = await stat(join(dir, name))
+            const text = await readFile(join(dir, name), 'utf8')
+            const title = (text.match(/^#\s+(.+)$/m) ?? [])[1] ?? name.replace(/\.md$/i, '')
+            items.push({ name, title: title.trim(), chars: text.replace(/\s/g, '').length, mtimeMs: info.mtimeMs })
+          } catch {
+            // 单份读不到就跳过
+          }
+        }
+        items.sort((left, right) => right.mtimeMs - left.mtimeMs)
+        return writeJson(res, 200, { ok: true, count: items.length, dir, items })
+      }
+
+      if (route === '/email/draft') {
+        if (method !== 'GET') return writeError(res, 405, 'method_not_allowed', 'GET only')
+        const name = url.searchParams.get('name') ?? ''
+        if (!/^[^/\\]+\.md$/i.test(name) || name.includes('..')) return writeError(res, 400, 'bad_request', '文件名不合法')
+        const target = join(settings.emailSkillDir, 'examples', 'approved', name)
+        try {
+          return writeJson(res, 200, { ok: true, name, text: await readFile(target, 'utf8') })
+        } catch (error) {
+          return writeError(res, 404, 'missing_draft', '读不到这份终稿：' + describe(error))
+        }
       }
 
       if (route === '/email') {

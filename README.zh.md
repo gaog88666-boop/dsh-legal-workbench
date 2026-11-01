@@ -68,8 +68,9 @@ dsh plugin --profile web add dsh-legal-workbench
 ## 文件都在哪
 
 ```
-AI Workspace/工作台/cards.json     卡片清单（增删卡片、改标题、改顺序只改这里）
-AI Workspace/工作台/prompts.json   prompt 模板
+~/.dsh-workbench/cards.json      卡片清单（增删卡片、改标题、改顺序只改这里；首次运行自动创建）
+~/.dsh-workbench/prompts.json    prompt 模板
+~/.dsh-workbench/asr.json        可选的语音转写凭据（600 权限，不进仓库）
 <vault>/Workbench/术语表.md        术语表（Obsidian 里也能直接编辑）
 <vault>/Workbench/.backups/       自动备份
 ```

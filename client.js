@@ -302,8 +302,27 @@ window.__ModuleLoader__.load({
 .dsh-wb-textarea:focus{outline:none;border-color:var(--dsw-alias-brand-primary)}
 .dsh-wb-field{display:flex;gap:6px;align-items:center;margin-bottom:6px}
 .dsh-wb-field label{flex:none;width:48px;font-size:calc(var(--wb-fs) - 2px);color:var(--dsw-alias-label-secondary)}
-.dsh-wb-row{padding:6px 7px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base)}
-.dsh-wb-row+.dsh-wb-row{margin-top:6px}
+.dsh-wb-row{position:relative;padding:9px 2px;border:none;border-bottom:1px solid var(--wb-line);border-radius:0;background:transparent;transition:background .12s}
+.dsh-wb-row:last-child{border-bottom:none}
+.dsh-wb-row:hover{background:var(--wb-surface)}
+.dsh-wb-row:hover{border-color:var(--wb-line-strong)}
+.dsh-wb-row-title{color:var(--wb-ink-2);font-weight:600;letter-spacing:.004em;font-size:calc(var(--wb-fs) + .5px)}
+.dsh-wb-row-title > span:first-child{color:var(--wb-ink-2)}
+.dsh-wb-row-meta{color:var(--wb-ink-3)}
+.dsh-wb-row .dsh-wb-chip{color:var(--wb-ink-3);background:var(--wb-surface-2);border-color:var(--wb-line)}
+/* 标签胶囊带一点主色，术语本身保持中性——橙色只出现在「你自己打的标记」上 */
+.dsh-wb-row .dsh-wb-tag{color:var(--wb-accent-strong);background:var(--wb-accent-soft);border-color:#eccbbd;font-weight:600}
+/* 悬停时左侧一道细主色，提示"这一行可操作" */
+.dsh-wb-row::before{content:'';position:absolute;left:-6px;top:6px;bottom:6px;width:2px;border-radius:2px;
+  background:var(--wb-accent);opacity:0;transition:opacity .12s}
+.dsh-wb-row:hover::before{opacity:.85}
+/* 悬停显现的动作组（只有术语表行用）：绝对定位到右上角，平时不可见 */
+.dsh-wb-actions-hover{position:absolute;top:3px;right:3px;margin:0;display:flex;gap:1px;
+  opacity:0;pointer-events:none;transition:opacity .12s;
+  background:linear-gradient(90deg,rgba(255,255,255,0),var(--wb-surface) 24%);padding-left:14px;border-radius:8px}
+.dsh-wb-row:hover .dsh-wb-actions-hover,.dsh-wb-row:focus-within .dsh-wb-actions-hover{opacity:.95;pointer-events:auto}
+@media (hover:none){.dsh-wb-actions-hover{position:static;opacity:.55;background:none;padding:0;margin-top:5px}}
+.dsh-wb-row+.dsh-wb-row{margin-top:0}
 .dsh-wb-row-title{display:flex;align-items:center;gap:6px;font-weight:500;font-size:calc(var(--wb-fs) - 1px);min-width:0}
 .dsh-wb-row-title span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-wb-row-meta{margin-top:2px;font-size:calc(var(--wb-fs) - 2px);color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
@@ -377,7 +396,7 @@ window.__ModuleLoader__.load({
 .dsh-wb-annot-fold > summary::before{content:'▸ ';opacity:.6}
 .dsh-wb-annot-fold[open] > summary::before{content:'▾ '}
 .dsh-wb-annot-card{padding:6px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);margin-bottom:6px;border-left:3px solid #ffd60a}
-.dsh-wb-annot-card[data-color=green]{border-left-color:#34c759}
+.dsh-wb-annot-card[data-color=green]{border-left-color:#d97757}
 .dsh-wb-annot-card[data-color=blue]{border-left-color:#007aff}
 .dsh-wb-annot-quote{font-size:calc(var(--wb-fs) - 1px);line-height:1.5;color:var(--dsw-alias-label-secondary);cursor:pointer;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .dsh-wb-annot-note{margin-top:4px;font-size:calc(var(--wb-fs) - 1px);line-height:1.6;color:var(--dsw-alias-label-primary);white-space:pre-wrap}
@@ -423,6 +442,140 @@ window.__ModuleLoader__.load({
 .dsh-wb-prop-value{flex:1;min-width:0;overflow-wrap:anywhere}
 .dsh-wb-section-row+.dsh-wb-section-row{margin-top:4px;padding-top:4px;border-top:1px dashed var(--dsw-alias-border-l1)}
 .dsh-wb-editor{margin-top:8px;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}
+
+/* ================= Claude 风格主题层 =================
+   1) 在面板内重映射 DSH 的主题变量，宿主配色不再直接决定观感
+   2) 字体：Anthropic 的 Styrene / Tiempos 为商用字体，不能随包分发；
+      这里用最接近的开源替代（Inter / Source Serif / 系统宋体），观感对齐
+   3) 绿色只保留语义位（成功状态），装饰性绿色一律去掉 */
+.dsh-wb-panel,.dsh-wb-overlay-panel{
+  --wb-bg:#faf9f5; --wb-surface:#ffffff; --wb-surface-2:#f2efe7; --wb-surface-3:#eae5d8;
+  --wb-line:#e7e2d6; --wb-line-strong:#d9d3c4;
+  --wb-ink:#141413; --wb-ink-2:#4a4842; --wb-ink-3:#8b887e;
+  --wb-accent:#d97757; --wb-accent-strong:#c05f3c; --wb-accent-soft:#f7e9e3;
+  --dsw-alias-bg-base:var(--wb-bg);
+  --dsw-alias-bg-layer-1:var(--wb-surface);
+  --dsw-alias-bg-layer-2:var(--wb-surface-2);
+  --dsw-alias-border-l1:var(--wb-line);
+  --dsw-alias-border-l2:var(--wb-line-strong);
+  --dsw-alias-label-primary:var(--wb-ink);
+  --dsw-alias-label-secondary:var(--wb-ink-2);
+  --dsw-alias-brand-primary:var(--wb-accent);
+  --dsw-alias-state-error-primary:#b4533b;
+  --dsw-alias-state-warn-primary:#b98a3e;
+  font-family:"Styrene B","Styrene A",ui-sans-serif,-apple-system,"SF Pro Text",Inter,"PingFang SC","Hiragino Sans GB",sans-serif;
+  color:var(--wb-ink);
+  letter-spacing:.006em;
+}
+.dsh-wb-panel{background:var(--wb-bg)}
+/* 阅读区用衬线，接近 Tiempos 的编辑气质 */
+.dsh-wb-md,.dsh-wb-reading-body,.dsh-wb-rule-body,.dsh-wb-annot-quote{
+  font-family:"Tiempos Text","Source Serif 4","Source Serif Pro",Charter,Georgia,"Songti SC","STSong",serif;
+  letter-spacing:.012em;
+}
+.dsh-wb-md{line-height:1.85;font-size:calc(var(--wb-fs) + .5px)}
+.dsh-wb-head{border-bottom:1px solid var(--wb-line);padding:14px 16px 12px}
+.dsh-wb-head h2{font-weight:600;letter-spacing:-.01em}
+.dsh-wb-sub{color:var(--wb-ink-3)}
+.dsh-wb-toolbar{padding:8px 16px 0}
+.dsh-wb-tabs{gap:0;padding:10px 16px 0;border-bottom:1px solid var(--wb-line)}
+.dsh-wb-tab{border:none;border-radius:8px 8px 0 0;padding:0 12px;color:var(--wb-ink-3);background:transparent}
+.dsh-wb-tab:hover{background:var(--wb-surface-2);color:var(--wb-ink)}
+.dsh-wb-tab[data-active=true]{background:var(--wb-surface);color:var(--wb-ink);font-weight:600;
+  box-shadow:inset 0 2px 0 var(--wb-accent),0 -1px 0 var(--wb-line),1px 0 0 var(--wb-line),-1px 0 0 var(--wb-line)}
+.dsh-wb-body{padding:14px 16px 22px;gap:2px}
+.dsh-wb-btn{border-color:transparent;border-radius:9px;color:var(--wb-ink-2);background:transparent}
+.dsh-wb-btn:hover{background:var(--wb-surface-2);color:var(--wb-ink)}
+.dsh-wb-btn[data-tone=primary]{background:var(--wb-accent);color:#fff;border-color:transparent;box-shadow:0 1px 0 rgba(0,0,0,.04)}
+.dsh-wb-btn[data-tone=primary]:hover{background:var(--wb-accent-strong);color:#fff;filter:none}
+.dsh-wb-btn[data-tone=quiet]{background:var(--wb-surface);border-color:var(--wb-line-strong)}
+.dsh-wb-btn[data-tone=quiet]:hover{background:var(--wb-surface-2)}
+.dsh-wb-card{border:1px solid var(--wb-line);border-radius:12px;background:var(--wb-surface);padding:12px 13px}
+.dsh-wb-card+.dsh-wb-card{margin-top:12px}
+.dsh-wb-input,.dsh-wb-textarea,.dsh-wb-rule-field,.dsh-wb-annot-input{
+  border:1px solid var(--wb-line-strong);border-radius:9px;background:var(--wb-surface);color:var(--wb-ink)}
+.dsh-wb-input:focus,.dsh-wb-textarea:focus{outline:none;border-color:var(--wb-accent);box-shadow:0 0 0 3px var(--wb-accent-soft)}
+.dsh-wb-nav-title{color:var(--wb-ink-3);border-bottom-color:var(--wb-line);letter-spacing:.04em}
+.dsh-wb-metrics{color:var(--wb-ink-3)}
+.dsh-wb-metrics b{color:var(--wb-ink)}
+.dsh-wb-note{color:var(--wb-ink-3)}
+.dsh-wb-chip{border-radius:999px;background:var(--wb-accent-soft);color:var(--wb-accent-strong)}
+.dsh-wb-tree-row[data-active=true]{background:var(--wb-accent-soft);color:var(--wb-ink);font-weight:600}
+.dsh-wb-tree-row[data-active=true] .dsh-wb-tree-dot{color:var(--wb-accent)}
+.dsh-wb-rule{border:1px solid var(--wb-line);border-radius:10px;background:var(--wb-surface)}
+.dsh-wb-rule-title{font-weight:600}
+/* 用量角标：峰谷不再用红绿，改用暖色深浅区分 */
+.dsh-wb-badge-btn{background:var(--wb-surface);border:1px solid var(--wb-line);border-radius:999px;color:var(--wb-ink-2)}
+.dsh-wb-badge-btn:hover{background:var(--wb-surface-2)}
+.dsh-wb-badge-btn[data-state=peak]{background:var(--wb-accent-soft);border-color:#e6b9a6}
+.dsh-wb-badge-btn[data-state=peak] b{color:var(--wb-accent-strong)}
+.dsh-wb-badge-btn[data-state=valley]{background:var(--wb-surface-2);border-color:var(--wb-line-strong)}
+.dsh-wb-badge-btn[data-state=valley] b{color:var(--wb-ink-2)}
+/* 高亮色：去掉绿色，改为暖色与中性色 */
+.dsh-wb-mark[data-color=green]{background:rgba(217,119,87,.26)}
+.dsh-wb-annot-card[data-color=green]{border-left-color:var(--wb-accent)}
+.dsh-wb-mark[data-color=yellow]{background:rgba(214,168,74,.30)}
+.dsh-wb-annot-card[data-color=yellow]{border-left-color:#d6a84a}
+.dsh-wb-mark[data-color=blue]{background:rgba(120,134,160,.26)}
+.dsh-wb-annot-card[data-color=blue]{border-left-color:#7886a0}
+.dsh-wb-annot-card{border:1px solid var(--wb-line);border-left-width:3px;background:var(--wb-surface)}
+.dsh-wb-annot-fold > summary{color:var(--wb-ink-3)}
+.dsh-wb-live-fold{border:1px solid var(--wb-line);border-radius:10px;background:var(--wb-surface)}
+.dsh-wb-live-fold > summary{color:var(--wb-ink-3)}
+.dsh-wb-overlay{background:rgba(20,20,19,.34)}
+.dsh-wb-overlay-panel{border:1px solid var(--wb-line-strong);border-radius:16px;box-shadow:0 28px 70px rgba(20,20,19,.28)}
+.dsh-wb-overlay-bar{border-bottom:1px solid var(--wb-line);background:var(--wb-bg)}
+/* 角标：默认中性，只有异常状态才带颜色 */
+.dsh-wb-chip{background:var(--wb-surface-2);border:1px solid var(--wb-line);color:var(--wb-ink-3);
+  font-variant-numeric:tabular-nums;padding:0 8px;line-height:17px}
+.dsh-wb-chip[data-state=ok],.dsh-wb-chip[data-state=ready]{background:var(--wb-surface-2);border-color:var(--wb-line);color:var(--wb-ink-2)}
+.dsh-wb-chip[data-state=missing],.dsh-wb-chip[data-state=warn]{background:#f7eddc;border-color:#e3cba6;color:#8a6630}
+.dsh-wb-chip[data-state=denied],.dsh-wb-chip[data-state=error]{background:#f7e5df;border-color:#e0b6a6;color:#a24a30}
+.dsh-wb-chip[data-state=unset],.dsh-wb-chip[data-state=idle]{background:transparent;border-color:var(--wb-line);color:var(--wb-ink-3)}
+/* 按钮统一：不换行、同高、同圆角 */
+.dsh-wb-btn{white-space:nowrap;height:28px;padding:0 10px;border-radius:9px}
+.dsh-wb-btn[data-tone=quiet]{height:28px;padding:0 10px;font-size:calc(var(--wb-fs) - 1px)}
+.dsh-wb-filters{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 4px}
+.dsh-wb-filter{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;
+  border:1px solid var(--wb-line);background:var(--wb-surface);color:var(--wb-ink-3);cursor:pointer;
+  font:inherit;font-size:calc(var(--wb-fs) - 1px);white-space:nowrap;transition:background .12s,border-color .12s}
+.dsh-wb-filter b{font-weight:600;color:var(--wb-ink-2);font-variant-numeric:tabular-nums}
+.dsh-wb-filter:hover{background:var(--wb-surface-2)}
+.dsh-wb-filter[data-active=true]{background:var(--wb-accent);border-color:var(--wb-accent);color:#fff}
+.dsh-wb-filter[data-active=true] b{color:#fff}
+.dsh-wb-empty-block{border:1px dashed var(--wb-line-strong);border-radius:10px;padding:12px;margin-top:8px;background:var(--wb-surface)}
+.dsh-wb-draft{border:1px solid var(--wb-line);border-radius:10px;background:var(--wb-surface);margin-bottom:8px;overflow:hidden}
+.dsh-wb-draft-head{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border:none;background:transparent;
+  cursor:pointer;text-align:left;font:inherit}
+.dsh-wb-draft-head:hover{background:var(--wb-surface-2)}
+.dsh-wb-draft-title{flex:1;min-width:0;font-weight:600;font-size:calc(var(--wb-fs) - 1px)}
+.dsh-wb-draft-meta{flex:none;color:var(--wb-ink-3);font-size:calc(var(--wb-fs) - 2px);font-variant-numeric:tabular-nums}
+.dsh-wb-draft-body{border-top:1px solid var(--wb-line);padding:10px 12px;max-height:360px;overflow:auto;font-size:calc(var(--wb-fs) - .5px)}
+.dsh-wb-section{margin:16px 0 4px}
+.dsh-wb-section-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.dsh-wb-section-name{font-size:calc(var(--wb-fs) - 2px);letter-spacing:.1em;color:var(--wb-ink-3);text-transform:uppercase}
+.dsh-wb-section-count{font-size:calc(var(--wb-fs) - 2px);color:var(--wb-ink-3);background:var(--wb-surface-2);
+  border-radius:999px;padding:0 7px;line-height:17px;font-variant-numeric:tabular-nums}
+.dsh-wb-section-head::after{content:'';flex:1;height:1px;background:var(--wb-line)}
+.dsh-wb-strength{flex:none;font-size:calc(var(--wb-fs) - 2px);padding:1px 8px;border-radius:999px;
+  border:1px solid transparent;font-variant-numeric:tabular-nums}
+.dsh-wb-strength[data-tone=hard]{background:var(--wb-accent);color:#fff;border-color:var(--wb-accent)}
+.dsh-wb-strength[data-tone=soft]{background:var(--wb-accent-soft);color:var(--wb-accent-strong);border-color:#eccbbd}
+.dsh-wb-strength[data-tone=watch]{background:var(--wb-surface-2);color:var(--wb-ink-3);border-color:var(--wb-line)}
+.dsh-wb-strength[data-tone=none]{background:transparent;color:var(--wb-ink-3);border-color:var(--wb-line)}
+.dsh-wb-rule-actions{display:flex;gap:2px;flex:none;opacity:.55;transition:opacity .15s}
+.dsh-wb-rule:hover .dsh-wb-rule-actions{opacity:1}
+.dsh-wb-rule[data-strength=hard]{border-left:3px solid var(--wb-accent)}
+.dsh-wb-rule[data-strength=soft]{border-left:3px solid #e6c0ae}
+.dsh-wb-rule[data-strength=watch]{border-left:3px solid var(--wb-line-strong)}
+.dsh-wb-rule-editlabel{font-size:calc(var(--wb-fs) - 2px);color:var(--wb-accent-strong)}
+.dsh-wb-field-label{display:block;font-size:calc(var(--wb-fs) - 2px);color:var(--wb-ink-3);margin-bottom:3px;letter-spacing:.04em}
+.dsh-wb-kv{display:grid;grid-template-columns:56px 1fr;gap:4px 10px;margin:8px 0 0}
+.dsh-wb-kv dt{font-size:calc(var(--wb-fs) - 2px);color:var(--wb-ink-3)}
+.dsh-wb-kv dd{margin:0;font-size:calc(var(--wb-fs) - 1px);color:var(--wb-ink-2);line-height:1.65}
+.dsh-wb-btn[data-tone=outline]{height:28px;padding:0 12px;border-color:var(--wb-line-strong);background:var(--wb-surface);color:var(--wb-ink-2);font-size:calc(var(--wb-fs) - 1px)}
+.dsh-wb-btn[data-tone=outline]:hover{background:var(--wb-surface-2);color:var(--wb-ink);border-color:var(--wb-line-strong)}
+.dsh-wb-icon-btn{width:28px;padding:0}
 `
 
     function StyleDefs() {
@@ -995,6 +1148,8 @@ window.__ModuleLoader__.load({
           const [focusNote, setFocusNote] = React.useState(null)
           const [focusRecording, setFocusRecording] = React.useState(null)
           const [focusMode, setFocusMode] = React.useState(false)
+          /** 顶部刷新按钮的计数：卡片据此重新拉取自己的数据（SOP 不再自带刷新按钮）。 */
+          const [refreshTick, setRefreshTick] = React.useState(0)
           const [fontSize, setFontSize] = React.useState(() => {
             try {
               const stored = Number(window.localStorage.getItem('dsh-workbench:fontSize'))
@@ -1354,7 +1509,7 @@ window.__ModuleLoader__.load({
               )),
             )
           } else if (activeCard !== null) {
-            const shared = { key: activeCard.id, card: activeCard, t, requestInsert, insertPrompt, prompts, setFlash, vault, insertNote, focusMode, setFocusMode, onUsageChanged: refreshUsage, ...(activeCard.kind === 'recorder' ? { focusRecording, onRecordingHandled: () => setFocusRecording(null) } : {}) }
+            const shared = { key: activeCard.id, card: activeCard, t, requestInsert, insertPrompt, prompts, setFlash, vault, insertNote, focusMode, setFocusMode, onUsageChanged: refreshUsage, refreshTick, ...(activeCard.kind === 'recorder' ? { focusRecording, onRecordingHandled: () => setFocusRecording(null) } : {}) }
             if (activeCard.kind === 'sop') body = h(SopCard, { ...shared, focusNote, onFocusHandled: () => setFocusNote(null) })
             else if (activeCard.kind === 'pkulaw') body = h(PkulawCard, shared)
             else if (activeCard.kind === 'email') body = h(EmailCard, shared)
@@ -1457,7 +1612,7 @@ window.__ModuleLoader__.load({
 
         /* ------------------------------------------------------------- SOP */
 
-        function SopCard({ card, t, requestInsert, setFlash, vault, focusNote, onFocusHandled, focusMode, setFocusMode }) {
+        function SopCard({ card, t, requestInsert, setFlash, vault, focusNote, onFocusHandled, focusMode, setFocusMode, refreshTick = 0 }) {
           const [state, setState] = React.useState({ status: 'loading' })
           const [doc, setDoc] = React.useState(null)
           const [editor, setEditor] = React.useState(null)
@@ -1547,6 +1702,13 @@ window.__ModuleLoader__.load({
               return next
             })
           }, [state])
+
+          // 顶部刷新按钮触发的强制重扫（首次挂载时 load(false) 已经跑过，这里跳过）
+          const firstTick = React.useRef(true)
+          React.useEffect(() => {
+            if (firstTick.current) { firstTick.current = false; return }
+            void load(true)
+          }, [refreshTick, load])
 
           function toggleDir(path) {
             setExpanded((previous) => ({ ...previous, [path]: previous[path] !== true }))
@@ -1665,7 +1827,6 @@ window.__ModuleLoader__.load({
 
           const actions = [
             h('button', { key: 'new', type: 'button', className: 'dsh-wb-btn', 'data-tone': 'primary', onClick: newNote }, t('sop.new')),
-            h('button', { key: 'rescan', type: 'button', className: 'dsh-wb-btn dsh-wb-icon-btn', disabled: busy, onClick: () => load(true), title: t('sop.rebuild'), 'aria-label': t('sop.rebuild') }, h(IconRefresh, null)),
             focusMode ? null : h('button', {
               key: 'focus',
               type: 'button',
@@ -1747,18 +1908,13 @@ window.__ModuleLoader__.load({
             fill: true,
             title: card.title,
             state: state.status === 'error' ? 'error' : 'ready',
-            stateText: stats !== null ? String(stats.count) : undefined,
+            stateText: stats !== null
+              ? stats.count + ' ' + t('sop.pages') + ' · ' + stats.chars + ' ' + t('sop.chars')
+              : undefined,
             actions,
           },
             state.status === 'error' ? h('div', { className: 'dsh-wb-error' }, state.message) : null,
             state.status === 'loading' && stats === null ? h('div', { className: 'dsh-wb-loading' }, t('panel.loading')) : null,
-            stats !== null
-              ? h('div', { className: 'dsh-wb-metrics' },
-                  h('span', null, h('b', null, stats.count), ' ' + t('sop.pages')),
-                  h('span', null, h('b', null, stats.chars), ' ' + t('sop.chars')),
-                  h('span', null, t('sop.updated') + ' ' + formatTime(stats.lastTouched)),
-                )
-              : null,
             h('div', { className: 'dsh-wb-split' },
               focusMode ? null : h('div', { className: 'dsh-wb-nav' },
                 h('div', { className: 'dsh-wb-nav-title' }, vault.sopDir ?? t('sop.nav')),
@@ -1945,6 +2101,14 @@ window.__ModuleLoader__.load({
           )
         }
 
+
+        function IconCopy({ size = 14 }) {
+          return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true },
+            h('rect', { x: 5.2, y: 5.2, width: 8, height: 8, rx: 1.6, stroke: 'currentColor', strokeWidth: 1.4 }),
+            h('path', { d: 'M10.6 3.2H4.2a1.6 1.6 0 0 0-1.6 1.6v6.4', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' }),
+          )
+        }
+
         function IconTrash({ size = 15 }) {
           return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true },
             h('path', { d: 'M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8h5.8l.6-8', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round' }),
@@ -2047,7 +2211,7 @@ window.__ModuleLoader__.load({
               h('button', {
                 type: 'button', className: 'dsh-wb-btn dsh-wb-icon-btn', title: '删除批注', 'aria-label': '删除批注',
                 onClick: () => onRemove?.(item.id),
-              }, h(IconTrash, null)),
+              }, h(IconTrash, { size: 15 })),
             ),
           )
           return [
@@ -2702,7 +2866,7 @@ window.__ModuleLoader__.load({
               h('div', { className: 'dsh-wb-row-actions' },
                 h('button', { type: 'button', className: 'dsh-wb-btn', 'data-tone': showComments ? 'primary' : 'quiet', onClick: () => setShowComments((value) => !value) }, '高亮 ' + annotations.filter((item) => String(item.note ?? '').trim() === '').length + ' · 批注 ' + annotations.filter((item) => String(item.note ?? '').trim() !== '').length),
                 h('button', { type: 'button', className: 'dsh-wb-btn', 'data-tone': 'quiet', disabled: importing, onClick: () => { void retranscribe() } }, importing ? '转写中…' : '重新转写'),
-                h('button', { type: 'button', className: 'dsh-wb-btn', 'data-tone': 'quiet', title: '删除这条录音', 'aria-label': '删除这条录音', onClick: () => setConfirming(true) }, h(IconTrash, null)),
+                h('button', { type: 'button', className: 'dsh-wb-btn', 'data-tone': 'quiet', title: '删除这条录音', 'aria-label': '删除这条录音', onClick: () => setConfirming(true) }, h(IconTrash, { size: 15 })),
               ),
             ),
             h('audio', {
@@ -2851,7 +3015,7 @@ window.__ModuleLoader__.load({
                 h('option', { value: 'volc' }, '火山（流式）'),
                 h('option', { value: 'iflyrec' }, '听见（整段）'),
               ),
-              h('button', { key: 'refresh', type: 'button', className: 'dsh-wb-btn dsh-wb-icon-btn', onClick: () => refresh(), title: t('panel.refresh'), 'aria-label': t('panel.refresh') }, h(IconRefresh, null)),
+              h('button', { key: 'refresh', type: 'button', className: 'dsh-wb-btn dsh-wb-icon-btn', onClick: () => { refresh(); setRefreshTick((value) => value + 1) }, title: t('panel.refresh'), 'aria-label': t('panel.refresh') }, h(IconRefresh, null)),
               focusMode ? null : h('button', {
                 key: 'nav',
                 type: 'button',
@@ -3065,10 +3229,21 @@ window.__ModuleLoader__.load({
 
         function EmailCard({ card, t, insertPrompt, setFlash }) {
           const [items, setItems] = React.useState(null)
+          const [filter, setFilter] = React.useState('all')
+          const [drafts, setDrafts] = React.useState(null)
+          const [openDraft, setOpenDraft] = React.useState(null)
           const [busy, setBusy] = React.useState(false)
           const [editing, setEditing] = React.useState(null)
           const [draft, setDraft] = React.useState(null)
           const stats = card.stats ?? null
+
+          React.useEffect(() => {
+            if (filter !== 'absorbed' || drafts !== null) return
+            api('/email/drafts').then(
+              (data) => setDrafts(Array.isArray(data.items) ? data.items : []),
+              () => setDrafts([]),
+            )
+          }, [filter, drafts])
 
           React.useEffect(() => {
             api('/email/rules').then(
@@ -3076,6 +3251,20 @@ window.__ModuleLoader__.load({
               () => setItems([]),
             )
           }, [])
+
+          /** 强度归一：把「软（待观察，命中 1/3）」这类长文本压成短标签。 */
+          const strengthOf = (item) => {
+            // 以所在分组为准：待观察区里的条目，强度文本常写成「软（待观察，命中 1/3）」，
+            // 若先匹配「软」会把它错误标成软规则。
+            if (item?.section === 'hard') return { key: 'hard', label: '硬' }
+            if (item?.section === 'soft') return { key: 'soft', label: '软' }
+            if (item?.section === 'watch') return { key: 'watch', label: '待观察' }
+            const raw = String(item?.fields?.['强度'] ?? '')
+            if (raw.includes('待观察')) return { key: 'watch', label: '待观察' }
+            if (raw.includes('硬')) return { key: 'hard', label: '硬' }
+            if (raw.includes('软')) return { key: 'soft', label: '软' }
+            return { key: 'none', label: '—' }
+          }
 
           const SECTIONS = [
             { key: 'hard', label: '硬规则' },
@@ -3145,61 +3334,118 @@ window.__ModuleLoader__.load({
             state: card.status,
             stateText: stats !== null ? String((stats.hard ?? 0) + (stats.soft ?? 0) + (stats.watch ?? 0)) : undefined,
             actions: [
-              h('button', { key: 'draft', type: 'button', className: 'dsh-wb-btn', 'data-tone': 'primary', onClick: () => insertPrompt('email-draft') }, t('email.draft')),
-              h('button', { key: 'add', type: 'button', className: 'dsh-wb-btn', 'data-tone': 'quiet', disabled: busy || items === null, onClick: addRule }, '新增规则'),
+              h('button', { key: 'draft', type: 'button', className: 'dsh-wb-btn', 'data-tone': 'outline', onClick: () => insertPrompt('email-draft') }, t('email.draft')),
+              h('button', { key: 'add', type: 'button', className: 'dsh-wb-btn', 'data-tone': 'outline', disabled: busy || items === null, onClick: addRule }, '新增规则'),
             ],
           },
             card.error !== undefined ? h('div', { className: 'dsh-wb-error' }, card.error.message) : null,
             stats !== null
-              ? h('div', { className: 'dsh-wb-metrics' },
-                  h('span', null, t('email.hard') + ' ' + h('b', null, stats.hard ?? 0)),
-                  h('span', null, t('email.soft') + ' ' + h('b', null, stats.soft ?? 0)),
-                  h('span', null, t('email.watch') + ' ' + h('b', null, stats.watch ?? 0)),
-                  h('span', null, t('email.absorbed') + ' ' + h('b', null, stats.absorbed ?? 0)),
-                  h('span', null, t('email.lastMerge') + ' ' + (stats.lastMerge ?? '—')),
+              ? h('div', { className: 'dsh-wb-filters' },
+                  ...[
+                    { key: 'all', label: '全部', count: (stats.hard ?? 0) + (stats.soft ?? 0) + (stats.watch ?? 0) },
+                    { key: 'hard', label: t('email.hard'), count: stats.hard ?? 0 },
+                    { key: 'soft', label: t('email.soft'), count: stats.soft ?? 0 },
+                    { key: 'watch', label: t('email.watch'), count: stats.watch ?? 0 },
+                    { key: 'absorbed', label: t('email.absorbed'), count: stats.absorbed ?? 0 },
+                  ].map((tab) => h('button', {
+                    key: tab.key,
+                    type: 'button',
+                    className: 'dsh-wb-filter',
+                    'data-active': filter === tab.key ? 'true' : 'false',
+                    onClick: () => setFilter(tab.key),
+                  }, h('span', null, tab.label), h('b', null, String(tab.count)))),
                 )
               : null,
             items === null ? h('p', { className: 'dsh-wb-note' }, '读取规则库…') : null,
             items !== null && items.length === 0 ? h('p', { className: 'dsh-wb-note' }, '规则库是空的') : null,
+            filter === 'absorbed'
+              ? (drafts === null
+                  ? h('p', { className: 'dsh-wb-note', style: { marginTop: '12px' } }, '读取已吸收终稿…')
+                  : drafts.length === 0
+                    ? h('div', { className: 'dsh-wb-empty-block' },
+                        h('div', { className: 'dsh-wb-note' }, '规则库记着 ' + String(stats?.absorbed ?? 0) + ' 份已吸收终稿，但 examples/approved/ 里还没有文件。'),
+                        h('div', { className: 'dsh-wb-note' }, '把脱敏后的终稿放进那个目录（.md），这里就会列出来。'),
+                      )
+                    : h('div', { className: 'dsh-wb-section' },
+                        h('div', { className: 'dsh-wb-section-head' },
+                          h('span', { className: 'dsh-wb-section-name' }, '已吸收终稿'),
+                          h('span', { className: 'dsh-wb-section-count' }, String(drafts.length)),
+                        ),
+                        drafts.map((draft) => h('div', { key: draft.name, className: 'dsh-wb-draft' },
+                          h('button', {
+                            type: 'button', className: 'dsh-wb-draft-head',
+                            onClick: () => {
+                              if (openDraft !== null && openDraft.name === draft.name) { setOpenDraft(null); return }
+                              api('/email/draft?name=' + encodeURIComponent(draft.name)).then(
+                                (data) => setOpenDraft({ name: draft.name, text: data.text ?? '' }),
+                                (error) => setFlash('读取失败：' + error.message),
+                              )
+                            },
+                          },
+                            h('span', { className: 'dsh-wb-draft-title' }, draft.title),
+                            h('span', { className: 'dsh-wb-draft-meta' }, draft.chars + ' 字'),
+                          ),
+                          openDraft !== null && openDraft.name === draft.name
+                            ? h('div', { className: 'dsh-wb-md dsh-wb-draft-body' }, openDraft.text)
+                            : null,
+                        )),
+                      ))
+              : null,
             ...SECTIONS.map((section) => {
+              if (filter !== 'all' && filter !== section.key) return null
               const list = sectionOf(section.key)
               if (list.length === 0) return null
-              return h('div', { key: section.key, style: { marginTop: '10px' } },
-                h('div', { className: 'dsh-wb-nav-title' }, section.label + '（' + list.length + '）'),
+              return h('div', { key: section.key, className: 'dsh-wb-section' },
+                h('div', { className: 'dsh-wb-section-head' },
+                  h('span', { className: 'dsh-wb-section-name' }, section.label),
+                  h('span', { className: 'dsh-wb-section-count' }, String(list.length)),
+                ),
                 list.map((item) => (editing === item.id && draft !== null
                   ? h('div', { key: item.id, className: 'dsh-wb-rule dsh-wb-rule-edit' },
-                      h('div', { className: 'dsh-wb-rule-id' }, item.id),
+                      h('div', { className: 'dsh-wb-rule-head' },
+                        h('span', { className: 'dsh-wb-rule-id' }, item.id),
+                        h('span', { className: 'dsh-wb-rule-editlabel' }, '编辑中'),
+                      ),
                       h('input', {
                         className: 'dsh-wb-input', value: draft.title, placeholder: '规则标题',
                         onChange: (event) => setDraft({ ...draft, title: event.target.value }),
                       }),
-                      ...FIELDS.map((field) => h('div', { key: field, style: { marginTop: '6px' } },
-                        h('div', { className: 'dsh-wb-note' }, field),
+                      ...FIELDS.map((field) => h('div', { key: field, style: { marginTop: '8px' } },
+                        h('label', { className: 'dsh-wb-field-label' }, field),
                         h('textarea', {
                           className: 'dsh-wb-input dsh-wb-rule-field',
                           value: draft.fields[field] ?? '',
+                          placeholder: field === '规则' ? '一句话写清「该怎么改」，不要写成「注意语气」' : '',
                           onChange: (event) => setDraft({ ...draft, fields: { ...draft.fields, [field]: event.target.value } }),
                         }),
                       )),
-                      h('div', { className: 'dsh-wb-row-actions', style: { justifyContent: 'flex-end', marginTop: '6px' } },
-                        h('button', { type: 'button', className: 'dsh-wb-btn', disabled: busy, onClick: () => { setEditing(null); setDraft(null) } }, '取消'),
+                      h('div', { className: 'dsh-wb-row-actions', style: { justifyContent: 'flex-end', marginTop: '10px' } },
+                        h('button', { type: 'button', className: 'dsh-wb-btn', 'data-tone': 'outline', disabled: busy, onClick: () => { setEditing(null); setDraft(null) } }, '取消'),
                         h('button', { type: 'button', className: 'dsh-wb-btn', 'data-tone': 'primary', disabled: busy, onClick: saveEdit }, '保存'),
                       ),
                     )
-                  : h('div', { key: item.id, className: 'dsh-wb-rule' },
+                  : h('div', { key: item.id, className: 'dsh-wb-rule', 'data-strength': strengthOf(item).key },
                       h('div', { className: 'dsh-wb-rule-head' },
                         h('span', { className: 'dsh-wb-rule-id' }, item.id),
                         h('span', { className: 'dsh-wb-rule-title' }, item.title),
-                        h('span', { className: 'dsh-wb-chip' }, String(item.fields?.['强度'] ?? '').slice(0, 6) || '—'),
-                        h('button', { type: 'button', className: 'dsh-wb-btn', 'data-tone': 'quiet', onClick: () => startEdit(item) }, '编辑'),
-                        h('button', { type: 'button', className: 'dsh-wb-btn', 'data-tone': 'quiet', onClick: () => removeRule(item) }, h(IconTrash, null)),
+                        h('span', {
+                          className: 'dsh-wb-strength',
+                          'data-tone': strengthOf(item).key,
+                          title: String(item.fields?.['强度'] ?? ''),
+                        }, strengthOf(item).label),
+                        h('span', { className: 'dsh-wb-rule-actions' },
+                          h('button', { type: 'button', className: 'dsh-wb-btn dsh-wb-icon-btn', title: '编辑', 'aria-label': '编辑', onClick: () => startEdit(item) }, h(IconPencil, { size: 15 })),
+                          h('button', { type: 'button', className: 'dsh-wb-btn dsh-wb-icon-btn', title: '删除', 'aria-label': '删除', onClick: () => removeRule(item) }, h(IconTrash, { size: 15 })),
+                        ),
                       ),
                       h('div', { className: 'dsh-wb-rule-body' }, item.fields?.['规则'] ?? ''),
                       h('details', { className: 'dsh-wb-rule-more' },
-                        h('summary', null, '证据 / 来源 / 反例'),
-                        h('div', { className: 'dsh-wb-note' }, '证据：' + (item.fields?.['证据'] || '—')),
-                        h('div', { className: 'dsh-wb-note' }, '来源：' + (item.fields?.['来源'] || '—')),
-                        h('div', { className: 'dsh-wb-note' }, '反例：' + (item.fields?.['反例'] || '—')),
+                        h('summary', null, '证据 · 来源 · 反例'),
+                        h('dl', { className: 'dsh-wb-kv' },
+                          h('dt', null, '证据'), h('dd', null, item.fields?.['证据'] || '—'),
+                          h('dt', null, '来源'), h('dd', null, item.fields?.['来源'] || '—'),
+                          h('dt', null, '反例'), h('dd', null, item.fields?.['反例'] || '—'),
+                        ),
                       ),
                     ))),
               )
@@ -3226,7 +3472,6 @@ window.__ModuleLoader__.load({
 
         function EntryCard({ card, t, requestInsert, setFlash, prompts }) {
           const KIND = ENTRY_KINDS[card.kind] ?? ENTRY_KINDS.glossary
-          const [tagging, setTagging] = React.useState(null)
           const [state, setState] = React.useState({ status: 'loading' })
           const [query, setQuery] = React.useState('')
           const [editing, setEditing] = React.useState(null)
@@ -3321,9 +3566,10 @@ window.__ModuleLoader__.load({
           const data = state.status === 'ready' ? state.data : null
           const entries = data !== null && Array.isArray(data.entries) ? data.entries : []
 
-          const actions = [h('button', { key: 'add', type: 'button', className: 'dsh-wb-btn', 'data-tone': 'primary', onClick: () => setEditing(blank()) }, t(KIND.add))]
+          // 两个都是并列动作，视觉等级一致：描边同级，避免一实一空显得突兀
+          const actions = [h('button', { key: 'add', type: 'button', className: 'dsh-wb-btn', 'data-tone': 'outline', onClick: () => setEditing(blank()) }, t(KIND.add))]
           if (KIND.insertAll !== undefined) {
-            actions.push(h('button', { key: 'all', type: 'button', className: 'dsh-wb-btn', 'data-tone': 'quiet', onClick: insertAll }, t(KIND.insertAll)))
+            actions.push(h('button', { key: 'all', type: 'button', className: 'dsh-wb-btn', 'data-tone': 'outline', onClick: insertAll }, t(KIND.insertAll)))
           }
 
           // 编辑表单就地渲染：改哪一条就展开在哪一条下面，不用滚回卡片顶部。
@@ -3378,41 +3624,25 @@ window.__ModuleLoader__.load({
                   h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontWeight: 400 } }, ' · ' + (entry[KIND.subKey] !== '' ? entry[KIND.subKey] : '（空）')),
                   entry[KIND.chipKey] !== '' ? h('span', { className: 'dsh-wb-chip' }, entry[KIND.chipKey]) : null,
                   ...String(entry.tag ?? '').split(/[,，]/).map((name) => name.trim()).filter((name) => name !== '').map((name, index) => h('span', {
-                    className: 'dsh-wb-chip',
+                    className: 'dsh-wb-chip dsh-wb-tag',
                     key: 'tag-' + index,
-                    style: { fontWeight: 600 },
                   }, '#' + name)),
                 ),
                 entry.note !== '' ? h('div', { className: 'dsh-wb-row-meta' }, entry.note) : null,
-                h('div', { className: 'dsh-wb-row-actions' },
-                  h('button', { type: 'button', className: 'dsh-wb-btn', 'data-tone': 'quiet', onClick: () => setEditing({ ...payloadOf(entry), id: entry.id }) }, t('glossary.edit')),
-                  h('button', { type: 'button', className: 'dsh-wb-btn', 'data-tone': 'quiet', onClick: () => {
-                    copyText(entry[KIND.titleKey] + '\t' + entry[KIND.subKey]).then((ok) => setFlash(ok ? t('copy.done') : t('copy.failed')))
-                  } }, t('glossary.copy')),
+                h('div', { className: 'dsh-wb-row-actions dsh-wb-actions-hover' },
                   h('button', {
-                    type: 'button',
-                    className: 'dsh-wb-btn',
-                    'data-tone': tagging !== null && tagging.id === entry.id ? 'primary' : 'quiet',
-                    onClick: () => setTagging(tagging !== null && tagging.id === entry.id ? null : { id: entry.id, value: entry.tag }),
-                  }, t('glossary.tag')),
-                  h('button', { type: 'button', className: 'dsh-wb-btn', 'data-tone': 'quiet', onClick: () => remove(entry) }, t('glossary.del')),
+                    type: 'button', className: 'dsh-wb-btn dsh-wb-icon-btn', title: t('glossary.edit'), 'aria-label': t('glossary.edit'),
+                    onClick: () => setEditing({ ...payloadOf(entry), id: entry.id }),
+                  }, h(IconPencil, { size: 15 })),
+                  h('button', {
+                    type: 'button', className: 'dsh-wb-btn dsh-wb-icon-btn', title: t('glossary.copy'), 'aria-label': t('glossary.copy'),
+                    onClick: () => { copyText(entry[KIND.titleKey] + '\t' + entry[KIND.subKey]).then((ok) => setFlash(ok ? t('copy.done') : t('copy.failed'))) },
+                  }, h(IconCopy, { size: 15 })),
+                  h('button', {
+                    type: 'button', className: 'dsh-wb-btn dsh-wb-icon-btn', title: t('glossary.del'), 'aria-label': t('glossary.del'),
+                    onClick: () => remove(entry),
+                  }, h(IconTrash, { size: 15 })),
                 ),
-                tagging !== null && tagging.id === entry.id
-                  ? h('div', { style: { display: 'flex', gap: '4px', marginTop: '6px' } },
-                      h('input', {
-                        className: 'dsh-wb-input',
-                        value: tagging.value,
-                        autoFocus: true,
-                        placeholder: t('glossary.tagHint'),
-                        onChange: (e) => setTagging({ ...tagging, value: e.target.value }),
-                        onKeyDown: (e) => {
-                          if (e.key === 'Enter' && busy !== true) saveTags(entry, tagging.value)
-                          if (e.key === 'Escape') setTagging(null)
-                        },
-                      }),
-                      h('button', { type: 'button', className: 'dsh-wb-btn', 'data-tone': 'primary', disabled: busy, onClick: () => saveTags(entry, tagging.value) }, t('glossary.save')),
-                    )
-                  : null,
                 editing !== null && editing.id === entry.id ? renderForm() : null,
               )),
             ),

@@ -1,6 +1,6 @@
 {
   "name": "dsh-legal-workbench",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Right-sidebar workbench for DeepSeek Harness: read/write your Obsidian notes, SOP lookup, glossary, recordings with live transcription and annotations, global search, optional usage badges.",
   "exports": {
