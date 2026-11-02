@@ -1244,7 +1244,7 @@ window.__ModuleLoader__.load({
               () => { if (alive) setPk({ status: 'error', available: null, low: false, stale: false, error: true }) },
             )
             return () => { alive = false }
-          }, [reloadKey])
+          }, [reloadKey, setup === null ? 'pending' : (setup.configured === true ? 'ready' : 'unconfigured')])
 
           React.useEffect(() => {
             if (flash === null) return undefined

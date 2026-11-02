@@ -744,8 +744,10 @@ export function apply(ctx, config) {
         if (method === 'PUT') {
           const body = await readJsonBody(req)
           const vaultRoot = typeof body.vaultRoot === 'string' ? body.vaultRoot.trim() : ''
-          if (vaultRoot === '') return writeError(res, 400, 'bad_request', '请填写 Obsidian 库的绝对路径')
-          if (!vaultRoot.startsWith('/')) return writeError(res, 400, 'bad_request', '请填写绝对路径（以 / 开头）')
+          if (vaultRoot === '') return writeError(res, 400, 'bad_request', '请填写笔记文件夹的绝对路径')
+          // 绝对路径的三种写法：POSIX（/…）、Windows 盘符（D:\… 或 D:/…）、Windows UNC（\\服务器\共享）
+          const isAbsolute = vaultRoot.startsWith('/') || /^[A-Za-z]:[\\/]/.test(vaultRoot) || vaultRoot.startsWith('\\\\')
+          if (!isAbsolute) return writeError(res, 400, 'bad_request', '请填写绝对路径：macOS 以 / 开头，Windows 形如 D:\\文件夹')
           const next = {
             vaultRoot,
             sopDir: typeof body.sopDir === 'string' && body.sopDir.trim() !== '' ? body.sopDir.trim() : 'SOP',
